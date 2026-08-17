@@ -1,0 +1,503 @@
+/* ============================================================
+   PlayListMaker — Stylesheet template with color tokens.
+   {{TOKEN}} placeholders are substituted at runtime by
+   core/theme_manager.py, based on the theme and colors chosen
+   by the user (see ui/settings_overlay.py).
+   ============================================================ */
+
+QWidget {
+    background-color: {{BG_APP}};
+    color: {{TEXT}};
+    font-family: "Segoe UI";
+    font-size: 13px;
+}
+
+#mainWindow {
+    background-color: {{BG_WINDOW}};
+}
+
+/* Vivid, theme-aware text-selection color for every input field —
+   otherwise it falls back to whatever accent Qt/the OS defaults to,
+   unrelated to this app's own color scheme. */
+QLineEdit {
+    selection-background-color: {{PRIMARY}};
+    selection-color: {{ON_PRIMARY}};
+}
+
+/* -------------------- Global explorer -------------------- */
+
+#actionsToolbar {
+    background-color: {{BG_PANEL}};
+    border: 1px solid {{BORDER}};
+    border-radius: 6px;
+}
+
+#btnOpenFolder {
+    background-color: {{BG_INPUT}};
+    color: {{TEXT}};
+    border: 1px solid {{PRIMARY}};
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-weight: bold;
+}
+
+#btnOpenFolder:hover {
+    background-color: {{PRIMARY}};
+    color: {{ON_PRIMARY}};
+}
+
+/* Toolbar icon buttons (Open Folder, Search USB, Settings) */
+#btnToolbarIcon {
+    background-color: {{BG_INPUT}};
+    color: {{TEXT}};
+    border: 1px solid {{PRIMARY}};
+    border-radius: 6px;
+    font-size: 16px;
+}
+#btnToolbarIcon:hover {
+    background-color: {{HOVER_BG}};
+    border-color: {{PRIMARY}};
+}
+
+#globalTree {
+    background-color: {{BG_PANEL}};
+    border: 1px solid {{BORDER}};
+    border-radius: 6px;
+    outline: none;
+    /* Stops Qt from extending a selected row's native highlight into the
+       branch/expand-arrow strip to the left of the item itself — that
+       strip is otherwise filled with the raw platform highlight color
+       (see also GlobalTreeView.sync_palette in ui/main_window.py, which
+       neutralizes that same color as a second line of defense). */
+    show-decoration-selected: 0;
+}
+
+#globalTree::item {
+    padding: 4px 2px;
+}
+
+/* Hover/selection and the persistent "active file" marker are painted by
+   TreeRowHighlightDelegate (see ui/main_window.py), not by QSS. That
+   delegate only covers column 0's own rect though — the branch/expand-
+   arrow strip to its left is painted natively by Qt, which otherwise
+   fills it with the platform's own selection color on a selected/hovered
+   row (visible as a stray colored sliver to the left of the delegate's
+   own highlight). Neutralizing it here keeps that strip transparent in
+   every state so only the delegate's own highlight shows. */
+#globalTree::branch {
+    background: transparent;
+}
+
+#globalTree::branch:hover {
+    background: transparent;
+}
+
+#globalTree::branch:selected {
+    background: transparent;
+}
+
+/* -------------------- Context menus -------------------- */
+
+QMenu {
+    background-color: {{BG_PANEL}};
+    color: {{TEXT}};
+    border: 1px solid {{BORDER}};
+    padding: 4px;
+}
+
+QMenu::item {
+    padding: 6px 24px 6px 12px;
+    border-radius: 4px;
+    border-left: 2px solid transparent;
+    border-right: 2px solid transparent;
+}
+
+QMenu::item:selected {
+    background-color: {{HOVER_BG}};
+    border-left: 2px solid {{PRIMARY}};
+    border-right: 2px solid {{PRIMARY}};
+    color: {{TEXT}};
+}
+
+/* -------------------- Tabs (Music / Playlist) -------------------- */
+
+QTabWidget::pane {
+    border: 1px solid {{BORDER}};
+    border-radius: 6px;
+}
+
+QTabBar::tab {
+    padding: 10px 22px;
+    font-weight: bold;
+    background: {{BG_INPUT}};
+    color: {{TEXT_MUTED}};
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    margin-right: 2px;
+}
+
+QTabBar::tab:selected {
+    background: {{BG_PANEL}};
+    color: {{TEXT}};
+    border-bottom: 2px solid {{PRIMARY}};
+}
+
+QTabBar::tab:hover:!selected {
+    color: {{TEXT}};
+}
+
+/* -------------------- Music tab -------------------- */
+
+#musicTab QLineEdit {
+    background-color: {{BG_INPUT}};
+    border: 1px solid {{BORDER_INPUT}};
+    border-radius: 5px;
+    padding: 6px 8px;
+}
+
+#musicTab QLineEdit:focus {
+    border: 1px solid {{PRIMARY}};
+}
+
+#btnSaveMetadata {
+    background-color: {{PRIMARY}};
+    color: {{ON_PRIMARY}};
+    border: none;
+    border-radius: 6px;
+    padding: 10px;
+    font-weight: bold;
+}
+
+#btnSaveMetadata:hover {
+    background-color: {{PRIMARY_HOVER}};
+}
+
+#btnSaveMetadata:disabled {
+    background-color: {{DISABLED_BG}};
+    color: {{DISABLED_TEXT}};
+}
+
+/* -------------------- Playlist tab -------------------- */
+
+#playlistTab QLineEdit {
+    background-color: {{BG_INPUT}};
+    border: 1px solid {{BORDER_INPUT}};
+    border-radius: 5px;
+    padding: 6px 8px;
+}
+
+#btnNewPlaylist {
+    background-color: {{BG_INPUT}};
+    border: 1px solid {{BORDER_INPUT}};
+    border-radius: 6px;
+}
+
+#btnNewPlaylist:hover {
+    background-color: {{HOVER_BG}};
+    border-color: {{SECONDARY}};
+}
+
+/* "New playlist by Artist/Genre" — smaller sub-option buttons inside the
+   drawer beneath "+" (see PlaylistTab._setup_new_playlist_drawer). Same
+   color/style/hover treatment as #btnNewPlaylist itself, just a touch
+   smaller to read as a sub-option rather than a peer action. */
+#btnPlaylistSubOption {
+    background-color: {{BG_INPUT}};
+    border: 1px solid {{BORDER_INPUT}};
+    border-radius: 5px;
+}
+
+#btnPlaylistSubOption:hover {
+    background-color: {{HOVER_BG}};
+    border-color: {{SECONDARY}};
+}
+
+#playlistButtonColumn {
+    background-color: {{BG_PANEL}};
+    border: 1px solid {{BORDER}};
+    border-radius: 6px;
+}
+
+#playlistEditorList {
+    background-color: {{BG_PANEL}};
+    border: 1px solid {{BORDER}};
+    border-radius: 6px;
+    padding: 4px;
+}
+
+#playlistEditorList::item {
+    padding: 8px 6px;
+    border-radius: 4px;
+    margin: 1px 0px;
+}
+
+/* Selection/hover for playlist rows is painted entirely by
+   DropHighlightDelegate (see ui/tabs/playlist_tab.py), not by QSS: the
+   highlight needs to be inset from the left edge so it never overlaps
+   the "now playing" indicator bar drawn in that same strip. */
+
+#btnSavePlaylist, #btnDeletePlaylist, #btnClearPlaylist {
+    border-radius: 6px;
+    font-size: 16px;
+}
+
+#btnSavePlaylist {
+    background-color: {{BG_INPUT}};
+    color: {{SUCCESS}};
+    border: 1px solid {{SUCCESS}};
+}
+#btnSavePlaylist:hover { background-color: {{HOVER_BG}}; border-color: {{SUCCESS}}; }
+#btnSavePlaylist:disabled { color: {{DISABLED_TEXT}}; border-color: {{DISABLED_BG}}; }
+
+#btnDeletePlaylist {
+    background-color: {{BG_INPUT}};
+    color: {{DANGER}};
+    border: 1px solid {{DANGER}};
+}
+#btnDeletePlaylist:hover { background-color: {{HOVER_BG}}; border-color: {{DANGER}}; }
+#btnDeletePlaylist:disabled { color: {{DISABLED_TEXT}}; border-color: {{DISABLED_BG}}; }
+
+#btnClearPlaylist {
+    background-color: {{BG_INPUT}};
+    color: {{TEXT}};
+    border: 1px solid {{BORDER_INPUT}};
+}
+#btnClearPlaylist:hover { background-color: {{HOVER_BG}}; border-color: {{TEXT}}; }
+#btnClearPlaylist:disabled { color: {{DISABLED_TEXT}}; }
+
+/* -------------------- Player (bottom bar) -------------------- */
+
+#playerWidget {
+    background-color: {{BG_WINDOW}};
+    border-top: 1px solid {{PRIMARY}};
+}
+
+/* #miniPlayer's own background/border are painted by hand in
+   MiniPlayerWindow.paintEvent (see ui/mini_player.py), not via QSS —
+   needed for a real transparent, anti-aliased rounded window shape. */
+
+/* Child labels otherwise inherit the global QWidget background-color
+   (BG_APP), which differs from #miniPlayer's own background — leaving
+   visible mismatched boxes behind the text. */
+#miniPlayer QLabel {
+    background-color: transparent;
+}
+
+#lblTime {
+    color: {{TEXT_MUTED}};
+    font-family: "Consolas";
+    font-size: 11px;
+}
+
+#lblTrackInfo {
+    color: {{TEXT}};
+    font-weight: bold;
+    font-size: 13px;
+}
+
+#lblVolIcon {
+    color: {{TEXT_MUTED}};
+    font-size: 12px;
+}
+
+QSlider#sldProgress::groove:horizontal {
+    height: 4px;
+    background: {{BORDER}};
+    border-radius: 2px;
+}
+QSlider#sldProgress::sub-page:horizontal {
+    background: {{PRIMARY}};
+    border-radius: 2px;
+}
+QSlider#sldProgress::handle:horizontal {
+    width: 10px; height: 10px;
+    margin: -3px 0;
+    background: {{HANDLE_COLOR}};
+    border: 2px solid {{PRIMARY}};
+    border-radius: 5px;
+}
+
+QSlider#sldVolume::groove:horizontal {
+    height: 3px;
+    background: {{BORDER}};
+}
+QSlider#sldVolume::sub-page:horizontal {
+    background: {{SECONDARY}};
+}
+QSlider#sldVolume::handle:horizontal {
+    width: 9px; height: 9px;
+    margin: -3px 0;
+    background: {{HANDLE_COLOR}};
+    border: 2px solid {{SECONDARY}};
+    border-radius: 4px;
+}
+
+#btnTransport {
+    font-size: 13px;
+    background-color: {{BG_INPUT}};
+    color: {{TEXT}};
+    border: 1px solid {{BORDER_INPUT}};
+    border-radius: 17px;
+}
+#btnTransport:hover {
+    background-color: {{HOVER_BG}};
+    border-color: {{PRIMARY}};
+}
+#btnTransport:pressed {
+    background-color: {{PRESSED_BG}};
+}
+
+#btnPlay {
+    font-size: 15px;
+    background-color: {{PRIMARY}};
+    color: {{ON_PRIMARY}};
+    border: none;
+    border-radius: 17px;
+}
+#btnPlay:hover { background-color: {{PRIMARY_HOVER}}; }
+#btnPlay:pressed { background-color: {{PRIMARY_PRESSED}}; }
+
+#cmbOutput {
+    background-color: {{BG_INPUT}};
+    color: {{TEXT}};
+    border: 1px solid {{BORDER_INPUT}};
+    border-radius: 5px;
+    padding: 3px 8px;
+    font-size: 11px;
+}
+#cmbOutput:hover {
+    border-color: {{SECONDARY}};
+}
+#cmbOutput::drop-down {
+    border: none;
+    width: 18px;
+}
+#cmbOutput QAbstractItemView {
+    background-color: {{BG_INPUT}};
+    color: {{TEXT}};
+    border: 1px solid {{BORDER_INPUT}};
+    outline: none;
+}
+#cmbOutput QAbstractItemView::item {
+    padding: 6px 10px;
+    border-left: 2px solid transparent;
+    border-right: 2px solid transparent;
+}
+#cmbOutput QAbstractItemView::item:selected {
+    background-color: {{HOVER_BG}};
+    border-left: 2px solid {{PRIMARY}};
+    border-right: 2px solid {{PRIMARY}};
+    color: {{TEXT}};
+}
+
+/* -------------------- Overlays (USB search / Settings) -------------------- */
+
+#usbOverlay, #settingsOverlay {
+    background-color: {{BG_PANEL}};
+    border: 2px solid {{PRIMARY}};
+    border-radius: 10px;
+}
+
+#overlayLabel, #settingsSectionLabel {
+    color: {{TEXT_STRONG}};
+    font-size: 14px;
+    font-weight: bold;
+}
+
+#overlayProgress {
+    background-color: {{BG_WINDOW}};
+    border: 1px solid {{BORDER}};
+    border-radius: 6px;
+    height: 10px;
+}
+
+#overlayProgress::chunk {
+    background-color: {{SECONDARY}};
+    border-radius: 5px;
+}
+
+#overlayDriveList {
+    background-color: {{BG_WINDOW}};
+    border: 1px solid {{BORDER}};
+    color: {{TEXT}};
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+#overlayDriveList::item {
+    padding: 10px;
+    border-bottom: 1px solid {{BG_INPUT}};
+    border-left: 2px solid transparent;
+    border-right: 2px solid transparent;
+}
+
+#overlayDriveList::item:hover {
+    background-color: {{HOVER_BG}};
+    border-left: 2px solid {{PRIMARY}};
+    border-right: 2px solid {{PRIMARY}};
+    border-radius: 4px;
+}
+
+#overlayDriveList::item:selected {
+    background-color: {{HOVER_BG}};
+    border-left: 2px solid {{PRIMARY}};
+    border-right: 2px solid {{PRIMARY}};
+    color: {{TEXT}};
+}
+
+#btnCancelOverlay {
+    background-color: {{BG_INPUT}};
+    color: {{TEXT}};
+    border: 1px solid {{BORDER_INPUT}};
+    border-radius: 5px;
+    padding: 6px 18px;
+    font-weight: bold;
+}
+#btnCancelOverlay:hover {
+    background-color: {{DANGER}};
+    border-color: {{DANGER}};
+    color: {{ON_DANGER}};
+}
+
+#btnCloseSettings {
+    background-color: {{PRIMARY}};
+    color: {{ON_PRIMARY}};
+    border: none;
+    border-radius: 5px;
+    padding: 8px 24px;
+    font-weight: bold;
+}
+#btnCloseSettings:hover {
+    background-color: {{PRIMARY_HOVER}};
+}
+
+/* -------------------- Settings (theme, colors) -------------------- */
+
+#settingsOverlay QRadioButton {
+    color: {{TEXT}};
+    spacing: 8px;
+    padding: 4px 0px;
+}
+#settingsOverlay QRadioButton::indicator {
+    width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    border: 2px solid {{BORDER_INPUT}};
+    background-color: {{BG_INPUT}};
+}
+#settingsOverlay QRadioButton::indicator:checked {
+    border: 2px solid {{PRIMARY}};
+    background-color: {{PRIMARY}};
+}
+
+#colorSwatchButton {
+    border: 1px solid {{BORDER_INPUT}};
+    border-radius: 6px;
+}
+#colorSwatchButton:hover {
+    border: 1px solid {{TEXT}};
+}
+
+QMessageBox {
+    background-color: {{BG_PANEL}};
+}

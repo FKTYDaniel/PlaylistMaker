@@ -1,0 +1,352 @@
+/* ============================================================
+   PlayListMaker — Tema escuro com acentos neon (cyan/magenta)
+   ============================================================ */
+
+QWidget {
+    background-color: #1b1b1f;
+    color: #e8e8ee;
+    font-family: "Segoe UI";
+    font-size: 13px;
+}
+
+#mainWindow {
+    background-color: #17171a;
+}
+
+/* -------------------- Explorador global -------------------- */
+
+#actionsToolbar {
+    background-color: #1e1e22;
+    border: 1px solid #333338;
+    border-radius: 6px;
+}
+
+#btnOpenFolder {
+    background-color: #232328;
+    color: #e8e8ee;
+    border: 1px solid #00e5ff;
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-weight: bold;
+}
+
+#btnOpenFolder:hover {
+    background-color: #00e5ff;
+    color: #101012;
+}
+
+#globalTree {
+    background-color: #1e1e22;
+    border: 1px solid #333338;
+    border-radius: 6px;
+    outline: none;
+}
+
+#globalTree::item {
+    padding: 4px 2px;
+}
+
+#globalTree::item:selected {
+    background-color: #00e5ff;
+    color: #101012;
+}
+
+#globalTree::item:hover {
+    background-color: #2a2a30;
+}
+
+/* -------------------- Tabs (Música / Playlist) -------------------- */
+
+QTabWidget::pane {
+    border: 1px solid #333338;
+    border-radius: 6px;
+}
+
+QTabBar::tab {
+    padding: 10px 22px;
+    font-weight: bold;
+    background: #232328;
+    color: #9a9aa4;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    margin-right: 2px;
+}
+
+QTabBar::tab:selected {
+    background: #26262c;
+    color: #ffffff;
+    border-bottom: 2px solid #00e5ff;
+}
+
+QTabBar::tab:hover:!selected {
+    color: #e8e8ee;
+}
+
+/* -------------------- Aba Música -------------------- */
+
+#musicTab QLineEdit {
+    background-color: #232328;
+    border: 1px solid #3a3a42;
+    border-radius: 5px;
+    padding: 6px 8px;
+}
+
+#musicTab QLineEdit:focus {
+    border: 1px solid #00e5ff;
+}
+
+#btnSaveMetadata {
+    background-color: #00e5ff;
+    color: #101012;
+    border: none;
+    border-radius: 6px;
+    padding: 10px;
+    font-weight: bold;
+}
+
+#btnSaveMetadata:hover {
+    background-color: #33ecff;
+}
+
+#btnSaveMetadata:disabled {
+    background-color: #3a3a42;
+    color: #7a7a84;
+}
+
+/* -------------------- Aba Playlist -------------------- */
+
+#playlistTab QLineEdit {
+    background-color: #232328;
+    border: 1px solid #3a3a42;
+    border-radius: 5px;
+    padding: 6px 8px;
+}
+
+#btnNewPlaylist {
+    background-color: #232328;
+    border: 1px solid #ff2bd6;
+    border-radius: 4px;
+    color: #ff2bd6;
+    font-weight: bold;
+    font-size: 16px;
+}
+
+#btnNewPlaylist:hover {
+    background-color: #ff2bd6;
+    color: #101012;
+}
+
+#playlistEditorList {
+    background-color: #1e1e22;
+    border: 1px solid #333338;
+    border-radius: 6px;
+    padding: 4px;
+}
+
+#playlistEditorList::item {
+    padding: 8px 6px;
+    border-radius: 4px;
+    margin: 1px 0px;
+}
+
+#playlistEditorList::item:selected {
+    background-color: #ff2bd6;
+    color: #101012;
+}
+
+#playlistEditorList::item:hover {
+    background-color: #2a2a30;
+}
+
+#btnSavePlaylist, #btnDeletePlaylist, #btnCancelPlaylist {
+    padding: 8px 16px;
+    border-radius: 5px;
+    font-weight: bold;
+}
+
+#btnSavePlaylist {
+    background-color: #00e5ff;
+    color: #101012;
+    border: none;
+}
+
+#btnSavePlaylist:hover { background-color: #33ecff; }
+#btnSavePlaylist:disabled { background-color: #3a3a42; color: #7a7a84; }
+
+#btnDeletePlaylist {
+    background-color: #232328;
+    color: #ff5c5c;
+    border: 1px solid #ff5c5c;
+}
+
+#btnDeletePlaylist:hover { background-color: #ff5c5c; color: #101012; }
+#btnDeletePlaylist:disabled { border-color: #3a3a42; color: #7a7a84; }
+
+#btnCancelPlaylist {
+    background-color: #232328;
+    color: #e8e8ee;
+    border: 1px solid #3a3a42;
+}
+
+#btnCancelPlaylist:hover { background-color: #2a2a30; }
+#btnCancelPlaylist:disabled { color: #7a7a84; }
+
+/* -------------------- Player (barra inferior) -------------------- */
+
+#playerWidget {
+    background-color: #1a1a1e;
+    border-top: 1px solid #00e5ff;
+}
+
+#lblTime {
+    color: #8a8a94;
+    font-family: "Consolas";
+    font-size: 11px;
+}
+
+#lblTrackInfo {
+    color: #f0f0f5;
+    font-weight: bold;
+    font-size: 13px;
+}
+
+#lblVolIcon {
+    color: #9a9aa4;
+    font-size: 12px;
+}
+
+QSlider#sldProgress::groove:horizontal {
+    height: 4px;
+    background: #333338;
+    border-radius: 2px;
+}
+QSlider#sldProgress::sub-page:horizontal {
+    background: #00e5ff;
+    border-radius: 2px;
+}
+QSlider#sldProgress::handle:horizontal {
+    width: 10px; height: 10px;
+    margin: -3px 0;
+    background: #ffffff;
+    border: 2px solid #00e5ff;
+    border-radius: 5px;
+}
+
+QSlider#sldVolume::groove:horizontal {
+    height: 3px;
+    background: #333338;
+}
+QSlider#sldVolume::sub-page:horizontal {
+    background: #ff2bd6;
+}
+QSlider#sldVolume::handle:horizontal {
+    width: 9px; height: 9px;
+    margin: -3px 0;
+    background: #ffffff;
+    border: 2px solid #ff2bd6;
+    border-radius: 4px;
+}
+
+#btnTransport {
+    font-size: 13px;
+    background-color: #232328;
+    color: #e8e8ee;
+    border: 1px solid #3a3a42;
+    border-radius: 17px;
+}
+#btnTransport:hover {
+    background-color: #2a2a30;
+    border-color: #00e5ff;
+}
+#btnTransport:pressed {
+    background-color: #101012;
+}
+
+#btnPlay {
+    font-size: 15px;
+    background-color: #00e5ff;
+    color: #101012;
+    border: none;
+    border-radius: 17px;
+}
+#btnPlay:hover { background-color: #33ecff; }
+#btnPlay:pressed { background-color: #00b8cc; }
+
+#cmbOutput {
+    background-color: #232328;
+    color: #e8e8ee;
+    border: 1px solid #3a3a42;
+    border-radius: 5px;
+    padding: 3px 8px;
+    font-size: 11px;
+}
+#cmbOutput:hover {
+    border-color: #ff2bd6;
+}
+#cmbOutput::drop-down {
+    border: none;
+    width: 18px;
+}
+#cmbOutput QAbstractItemView {
+    background-color: #232328;
+    color: #e8e8ee;
+    selection-background-color: #ff2bd6;
+    selection-color: #101012;
+    border: 1px solid #3a3a42;
+}
+
+/* -------------------- Overlay de deteção USB -------------------- */
+
+#usbOverlay {
+    background-color: #1e1e22;
+    border: 2px solid #00e5ff;
+    border-radius: 10px;
+}
+
+#overlayLabel {
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+#overlayDriveList {
+    background-color: #16161a;
+    border: 1px solid #333338;
+    color: #e8e8ee;
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+#overlayDriveList::item {
+    padding: 10px;
+    border-bottom: 1px solid #232328;
+}
+
+#overlayDriveList::item:hover {
+    background-color: #00e5ff;
+    color: #101012;
+    border-radius: 4px;
+}
+
+#overlayDriveList::item:selected {
+    background-color: #ff2bd6;
+    color: #101012;
+}
+
+#btnCancelOverlay {
+    background-color: #232328;
+    color: #e8e8ee;
+    border: 1px solid #3a3a42;
+    border-radius: 5px;
+    padding: 6px 18px;
+    font-weight: bold;
+}
+#btnCancelOverlay:hover {
+    background-color: #ff5c5c;
+    border-color: #ff5c5c;
+    color: #101012;
+}
+
+QMessageBox {
+    background-color: #1e1e22;
+}

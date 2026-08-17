@@ -1,0 +1,28 @@
+<svg viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00e5ff"/>
+      <stop offset="100%" stop-color="#ff2bd6"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect x="0" y="0" width="256" height="256" rx="48" fill="#121218"/>
+
+  <circle cx="128" cy="128" r="92" fill="none" stroke="url(#ringGrad)" stroke-width="6" filter="url(#glow)"/>
+
+  <g filter="url(#glow)">
+    <path d="M104 74 v78" stroke="#00e5ff" stroke-width="8" stroke-linecap="round"/>
+    <path d="M152 66 v86" stroke="#ff2bd6" stroke-width="8" stroke-linecap="round"/>
+    <path d="M104 74 L152 66" stroke="#e8e8ee" stroke-width="6" stroke-linecap="round"/>
+
+    <ellipse cx="92" cy="154" rx="16" ry="12" fill="#00e5ff"/>
+    <ellipse cx="140" cy="154" rx="16" ry="12" fill="#ff2bd6"/>
+  </g>
+</svg>
