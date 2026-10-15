@@ -3,7 +3,7 @@ from PyQt6.QtCore import QObject, pyqtSignal
 from core.audio_tools import AudioMetadataManager
 
 class MusicViewModel(QObject):
-    metadata_loaded = pyqtSignal(str, str, str, str)
+    metadata_loaded = pyqtSignal(str, str, str, str, str, str)
     filename_auto_updated = pyqtSignal(str)
     about_to_rename = pyqtSignal(str)
     save_success = pyqtSignal(str)
@@ -16,7 +16,7 @@ class MusicViewModel(QObject):
     def load_file(self, file_path: str) -> None:
         if not file_path or not os.path.exists(file_path):
             self.current_edit_file = None
-            self.metadata_loaded.emit("", "", "", "")
+            self.metadata_loaded.emit("", "", "", "", "", "")
             return
 
         self.current_edit_file = file_path
@@ -24,10 +24,12 @@ class MusicViewModel(QObject):
 
         title = metadata.get("title", "") if metadata else ""
         artist = metadata.get("artist", "") if metadata else ""
+        album = metadata.get("album", "") if metadata else ""
         genre = metadata.get("genre", "") if metadata else ""
+        lyrics = metadata.get("lyrics", "") if metadata else ""
         filename = os.path.basename(file_path)
 
-        self.metadata_loaded.emit(title, artist, genre, filename)
+        self.metadata_loaded.emit(title, artist, album, genre, lyrics, filename)
 
     def handle_title_changed(self, title: str) -> None:
         if not self.current_edit_file:
@@ -35,16 +37,20 @@ class MusicViewModel(QObject):
         clean_name = AudioMetadataManager.sanitize_filename(title)
         self.filename_auto_updated.emit(clean_name)
 
-    def save_metadata(self, title: str, artist: str, genre: str, filename: str) -> None:
+    def save_metadata(self, title: str, artist: str, album: str, genre: str,
+                      lyrics: str, filename: str) -> None:
         if not self.current_edit_file:
             return
 
         title = title.strip()
         artist = artist.strip()
+        album = album.strip()
         genre = genre.strip()
+        lyrics = lyrics.strip()
         filename = filename.strip()
 
-        success = AudioMetadataManager.save_metadata(self.current_edit_file, title, artist, genre)
+        success = AudioMetadataManager.save_metadata(
+            self.current_edit_file, title, artist, album, genre, lyrics)
         if not success:
             self.save_error.emit("Failed to write ID3 metadata to the file.")
             return

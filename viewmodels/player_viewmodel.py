@@ -16,8 +16,10 @@ class PlayerViewModel(QObject):
     available_outputs_changed = pyqtSignal(list)
     active_output_index_changed = pyqtSignal(int)
 
-    def __init__(self) -> None:
+    def __init__(self, config=None) -> None:
         super().__init__()
+        self.config = config
+        self.repeat_mode: str = "off"  # "off" | "one" | "all"
         self.playlist_queue: list[str] = []
         self.current_index: int = -1
         self.m3u_base_dir: str = ""
@@ -31,9 +33,8 @@ class PlayerViewModel(QObject):
         self.player.mediaStatusChanged.connect(self._on_media_status_changed)
         self.player.errorOccurred.connect(self._on_player_error)
 
-        # Watchdog: detects playback "stuck" at the same position while
-        # supposedly playing (abrupt device disconnects, e.g. Bluetooth,
-        # don't always trigger a clean audioOutputsChanged/errorOccurred).
+        # Watchdog: detects playback stuck at the same position (abrupt
+        # device disconnects don't always trigger a clean error signal).
         self._last_watchdog_position: int = -1
         self._stall_ticks: int = 0
         self._watchdog = QTimer(self)
@@ -41,9 +42,8 @@ class PlayerViewModel(QObject):
         self._watchdog.timeout.connect(self._check_playback_health)
         self._watchdog.start()
 
-        # By default the output follows the OS default device automatically.
-        # A manual choice from the dropdown is remembered in
-        # _manual_device_id and takes priority until that device disappears.
+        # Output follows the OS default device unless the user picks one
+        # manually (see set_output_device_by_index).
         self._available_devices: list = []
         self._manual_device_id = None
 
@@ -53,11 +53,19 @@ class PlayerViewModel(QObject):
 
         self._volume_before_mute: int = 70
         self._is_muted: bool = False
-        self.set_volume(70)
 
-        # Lets a View created after a track already started (e.g. the mini
-        # player, opened mid-playback) pull the current display text
-        # instead of only receiving it via signals it wasn't around for.
+        # Debounced: only the value after a short pause in dragging gets
+        # written to disk (see set_volume/_persist_volume).
+        self._volume_save_timer = QTimer(self)
+        self._volume_save_timer.setSingleShot(True)
+        self._volume_save_timer.setInterval(400)
+        self._volume_save_timer.timeout.connect(self._persist_volume)
+
+        initial_volume = self.config.get_volume() if self.config else 70
+        self.set_volume(initial_volume)
+
+        # Lets a View created mid-playback (e.g. the mini player) pull
+        # the current display text instead of only receiving it live.
         self._current_display_text: str = "No track loaded"
 
     def get_current_track_display(self) -> str:
@@ -179,6 +187,16 @@ class PlayerViewModel(QObject):
         elif value < 40: self.volume_icon_changed.emit("🔈")
         else: self.volume_icon_changed.emit("🔊")
 
+        # Restarts the debounce window on every change (see
+        # _persist_volume).
+        if self.config is not None:
+            self._volume_save_timer.start()
+
+    def _persist_volume(self) -> None:
+        """Saves the last non-muted level, so quitting while muted
+        doesn't reset the remembered volume to silence."""
+        self.config.set_volume(self._volume_before_mute)
+
     def toggle_mute(self) -> None:
         """Toggles between silence and the last known non-zero volume."""
         if self._is_muted:
@@ -203,14 +221,32 @@ class PlayerViewModel(QObject):
         else:
             self.current_index = 0
 
+    def set_repeat_mode(self, mode: str) -> None:
+        """Sets what happens when a track ends: "off", "one" or "all"."""
+        self.repeat_mode = mode
+
     def _on_media_status_changed(self, status: QMediaPlayer.MediaStatus) -> None:
-        if status == QMediaPlayer.MediaStatus.EndOfMedia:
+        if status != QMediaPlayer.MediaStatus.EndOfMedia:
+            return
+        if self.repeat_mode == "one":
+            self.player.setPosition(0)
+            self.player.play()
+        elif self.current_index < len(self.playlist_queue) - 1:
             self.next_track()
+        elif self.repeat_mode == "all" and self.playlist_queue:
+            self.jump_to_queue_index(0)
+        else:
+            self._finish_playback()
+
+    def _finish_playback(self) -> None:
+        """Queue finished: rewinds to the start and shows Play again."""
+        self.player.stop()
+        self.playback_state_changed.emit("▶")
+        self.position_changed.emit(0)
 
     def _on_player_error(self, error, error_string: str) -> None:
-        """Reacts to errors from the audio engine itself (e.g. failing to
-        reach the output device). Recovery is deferred for the same
-        reentrancy-safety reason as _on_audio_outputs_changed."""
+        """Reacts to audio-engine errors (e.g. failing to reach the
+        output device) by recovering the default device."""
         if error == QMediaPlayer.Error.NoError:
             return
         print(f"Audio engine error: {error_string}")
@@ -223,9 +259,8 @@ class PlayerViewModel(QObject):
             self._switch_to_device(default_device)
 
     def _check_playback_health(self) -> None:
-        """Watchdog tick: forces a recovery if playback appears stuck.
-        Covers abrupt device disconnects (e.g. Bluetooth) that don't
-        reliably trigger audioOutputsChanged or errorOccurred."""
+        """Watchdog tick: forces a device recovery if playback appears
+        stuck (e.g. an abrupt Bluetooth disconnect)."""
         if self.player.playbackState() != QMediaPlayer.PlaybackState.PlayingState:
             self._stall_ticks = 0
             self._last_watchdog_position = -1
@@ -245,9 +280,8 @@ class PlayerViewModel(QObject):
     # ---------------- Audio output device management ----------------
 
     def set_output_device_by_index(self, index: int) -> None:
-        """Called by the View when the user manually picks an output
-        device from the dropdown. Stops following the automatic default
-        until this device becomes unavailable."""
+        """Called when the user picks an output device from the
+        dropdown; stops following the OS default until it disappears."""
         if not (0 <= index < len(self._available_devices)):
             return
 
@@ -263,22 +297,16 @@ class PlayerViewModel(QObject):
         return -1
 
     def get_available_output_descriptions(self) -> list:
-        """Lets the View pull the current state explicitly, since
-        available_outputs_changed is emitted during __init__, before the
-        View exists to receive it."""
+        """Lets the View pull the current output list explicitly, since
+        available_outputs_changed fires during __init__."""
         return [d.description() for d in self._available_devices]
 
     def get_current_output_index(self) -> int:
         return self._current_output_index()
 
     def _switch_to_device(self, device) -> None:
-        """Switches the audio output device.
-
-        Calling pause() before setDevice() isn't enough on its own: some
-        Qt Multimedia backends on Windows recreate the audio pipeline when
-        the device changes, which can reset the position to 0 regardless
-        of call order. So the position is saved explicitly and reapplied
-        shortly after, giving the pipeline time to settle first."""
+        """Switches the audio output device, saving/restoring playback
+        position since some backends reset it when the device changes."""
         if self.audio_output.device().id() == device.id():
             self.active_output_index_changed.emit(self._current_output_index())
             return
@@ -295,19 +323,13 @@ class PlayerViewModel(QObject):
         self.active_output_index_changed.emit(self._current_output_index())
 
     def _on_audio_outputs_changed(self) -> None:
-        """Reacts to changes in the available audio devices (headphones,
-        Bluetooth, etc plugged/unplugged).
-
-        On Windows this signal typically originates from a system COM
-        callback (IMMNotificationClient). Synchronously querying the audio
-        subsystem again from within that same callback is a known cause of
-        reentrancy deadlocks. So this handler does nothing risky itself; it
-        just defers the real handling to the next event loop iteration."""
+        """Reacts to audio devices being plugged/unplugged, deferred to
+        avoid reentrancy issues with the OS callback that triggers this."""
         QTimer.singleShot(400, self._handle_audio_outputs_changed_deferred)
 
     def _handle_audio_outputs_changed_deferred(self) -> None:
-        """Actual audioOutputsChanged handling, run outside the original
-        callback (see _on_audio_outputs_changed)."""
+        """Actual audioOutputsChanged handling (see
+        _on_audio_outputs_changed)."""
         self._available_devices = QMediaDevices.audioOutputs()
         self.available_outputs_changed.emit([d.description() for d in self._available_devices])
 

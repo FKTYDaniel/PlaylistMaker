@@ -8,18 +8,13 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "theme": "dark",            # "dark" | "light" | "system"
     "primary_color": "#00e5ff",
     "secondary_color": "#ff2bd6",
+    "volume": 70,               # last non-muted volume level (0-100)
 }
 
 
 class ConfigManager:
-    """Manages the user's config file (theme and colors).
-
-    This file never lives inside the app's install folder (e.g. 'Program
-    Files'), which is typically read-only for non-admin Windows users. It
-    always lives in the current user's own data folder (%APPDATA% on
-    Windows), the standard location for this kind of preference, created
-    and written at runtime rather than shipped with the installer.
-    """
+    """Loads and saves the user's config file (theme, colors, volume) from
+    the OS's per-user data folder, not the app's install folder."""
 
     APP_FOLDER_NAME = "PlayListMaker"
     CONFIG_FILE_NAME = "config.json"
@@ -80,4 +75,16 @@ class ConfigManager:
 
     def set_secondary_color(self, color_hex: str) -> None:
         self._data["secondary_color"] = color_hex
+        self.save()
+
+    def get_volume(self) -> int:
+        """Last remembered non-muted volume level (0-100)."""
+        value = self._data.get("volume", DEFAULT_CONFIG["volume"])
+        try:
+            return max(0, min(100, int(value)))
+        except (TypeError, ValueError):
+            return DEFAULT_CONFIG["volume"]
+
+    def set_volume(self, value: int) -> None:
+        self._data["volume"] = max(0, min(100, int(value)))
         self.save()

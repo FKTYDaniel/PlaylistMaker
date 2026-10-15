@@ -1,26 +1,121 @@
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QSlider, QStyle, QStyleOptionSlider, QGraphicsDropShadowEffect, QComboBox
-from PyQt6.QtCore import Qt, QTime, pyqtSignal
-from PyQt6.QtGui import QMouseEvent, QColor, QPalette
+from PyQt6.QtCore import Qt, QTime, pyqtSignal, QSize, QRectF, QPointF
+from PyQt6.QtGui import QMouseEvent, QColor, QPalette, QIcon, QPixmap, QPainter, QPolygonF
 from core import theme_manager
 from viewmodels.player_viewmodel import PlayerViewModel
 
 
+def _make_play_icon(color_hex: str, size: int = 18) -> QIcon:
+    """Hand-drawn play triangle (vector, not a Unicode glyph, so it can
+    be recolored at runtime)."""
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(color_hex))
+
+    w = size * 0.6
+    h = size * 0.72
+    x = (size - w) / 2 + size * 0.05  # nudged right: optically centers the triangle
+    y = (size - h) / 2
+    points = [QPointF(x, y), QPointF(x, y + h), QPointF(x + w, y + h / 2)]
+    painter.drawPolygon(QPolygonF(points))
+    painter.end()
+    return QIcon(pixmap)
+
+
+def _make_pause_icon(color_hex: str, size: int = 18) -> QIcon:
+    """Hand-drawn pause bars — see _make_play_icon."""
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(color_hex))
+
+    bar_w = size * 0.18
+    bar_h = size * 0.64
+    gap = size * 0.16
+    top = (size - bar_h) / 2
+    left_x = size / 2 - gap / 2 - bar_w
+    right_x = size / 2 + gap / 2
+    radius = bar_w * 0.3
+    painter.drawRoundedRect(QRectF(left_x, top, bar_w, bar_h), radius, radius)
+    painter.drawRoundedRect(QRectF(right_x, top, bar_w, bar_h), radius, radius)
+    painter.end()
+    return QIcon(pixmap)
+
+
+def _make_stop_icon(color_hex: str, size: int = 16) -> QIcon:
+    """Hand-drawn stop square — see _make_play_icon."""
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(color_hex))
+
+    side = size * 0.56
+    rect = QRectF((size - side) / 2, (size - side) / 2, side, side)
+    painter.drawRoundedRect(rect, side * 0.2, side * 0.2)
+    painter.end()
+    return QIcon(pixmap)
+
+
+def _make_prev_icon(color_hex: str, size: int = 16) -> QIcon:
+    """Hand-drawn "skip to previous" glyph (bar + triangle) — see
+    _make_play_icon."""
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(color_hex))
+
+    bar_w = size * 0.14
+    bar_h = size * 0.64
+    bar_x = size * 0.16
+    top = (size - bar_h) / 2
+    painter.drawRoundedRect(QRectF(bar_x, top, bar_w, bar_h), bar_w * 0.3, bar_w * 0.3)
+
+    tri_w = size * 0.44
+    tri_h = size * 0.64
+    tri_x = bar_x + bar_w + size * 0.08
+    points = [QPointF(tri_x + tri_w, top), QPointF(tri_x + tri_w, top + tri_h), QPointF(tri_x, top + tri_h / 2)]
+    painter.drawPolygon(QPolygonF(points))
+    painter.end()
+    return QIcon(pixmap)
+
+
+def _make_next_icon(color_hex: str, size: int = 16) -> QIcon:
+    """Hand-drawn "skip to next" glyph (triangle + bar), mirroring
+    _make_prev_icon."""
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(color_hex))
+
+    bar_w = size * 0.14
+    bar_h = size * 0.64
+    bar_x = size - size * 0.16 - bar_w
+    top = (size - bar_h) / 2
+    painter.drawRoundedRect(QRectF(bar_x, top, bar_w, bar_h), bar_w * 0.3, bar_w * 0.3)
+
+    tri_w = size * 0.44
+    tri_h = size * 0.64
+    tri_x = bar_x - size * 0.08 - tri_w
+    points = [QPointF(tri_x, top), QPointF(tri_x, top + tri_h), QPointF(tri_x + tri_w, top + tri_h / 2)]
+    painter.drawPolygon(QPolygonF(points))
+    painter.end()
+    return QIcon(pixmap)
+
+
 class ClickableSlider(QSlider):
-    """Slider supporting both click-to-position and free dragging.
-
-    Mouse handling (press/move/release) is fully custom because partially
-    delegating to the native QSlider caused two problems:
-    1) a plain click didn't account for handle width, skewing the value
-       near the edges (most noticeable on the narrow volume slider);
-    2) without entering QSlider's internal drag state, the native
-       mouseMoveEvent did nothing, and since isSliderDown() never became
-       True, playback position updates fought the user's drag in real time.
-
-    setSliderDown(True/False) is the correct way to enter/exit
-    QAbstractSlider's drag state: it emits sliderPressed()/sliderReleased()
-    and makes isSliderDown() report correctly, which the View relies on to
-    know when to ignore automatic position updates.
-    """
+    """Slider supporting both click-to-position and free dragging, with
+    fully custom mouse handling."""
 
     def __init__(self, orientation: Qt.Orientation) -> None:
         super().__init__(orientation)
@@ -94,6 +189,7 @@ class MusicPlayerWidget(QWidget):
         self.vm = view_model
         self.config = config
         self._current_duration = 0
+        self._is_playing = False
         self.init_ui()
         self.bind_viewmodel()
 
@@ -135,20 +231,23 @@ class MusicPlayerWidget(QWidget):
         controls_layout = QHBoxLayout()
         controls_layout.setSpacing(10)
 
-        self.btn_prev = QPushButton("⏮")
-        self.btn_play = QPushButton("▶")
-        self.btn_stop = QPushButton("⏹")
-        self.btn_next = QPushButton("⏭")
+        self.btn_prev = QPushButton()
+        self.btn_play = QPushButton()
+        self.btn_stop = QPushButton()
+        self.btn_next = QPushButton()
 
         for btn in (self.btn_prev, self.btn_play, self.btn_stop, self.btn_next):
             btn.setFixedSize(34, 34)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setObjectName("btnTransport")
 
+        self.btn_prev.setIconSize(QSize(16, 16))
+        self.btn_stop.setIconSize(QSize(16, 16))
+        self.btn_next.setIconSize(QSize(16, 16))
+        self.btn_play.setIconSize(QSize(18, 18))
+
         self.btn_play.setObjectName("btnPlay")
-        # Real neon glow (not achievable via QSS alone). Kept as an
-        # attribute so it can be recolored when the user changes the
-        # primary color in Settings (see set_glow_color).
+        # Real neon glow, not achievable via QSS alone (see set_glow_color).
         self._play_glow = QGraphicsDropShadowEffect(self.btn_play)
         self._play_glow.setBlurRadius(20)
         self._play_glow.setColor(QColor(0, 229, 255, 200))
@@ -187,10 +286,6 @@ class MusicPlayerWidget(QWidget):
         self.cmb_output.setCursor(Qt.CursorShape.PointingHandCursor)
         self.cmb_output.view().setCursor(Qt.CursorShape.PointingHandCursor)
 
-        # Lives inside the same stretch widget (volume_container) as the
-        # volume slider, to its left, so the bottom row stays symmetric
-        # (lbl_track_info vs volume_container, both stretch 1) and the
-        # transport buttons stay centered.
         volume_layout.addWidget(self.cmb_output)
         volume_layout.addWidget(self.lbl_vol_icon)
         volume_layout.addWidget(self.sld_volume)
@@ -202,7 +297,7 @@ class MusicPlayerWidget(QWidget):
         self.vm.track_info_changed.connect(self.lbl_track_info.setText)
         self.vm.position_changed.connect(self.update_progress_slider)
         self.vm.duration_changed.connect(self.update_duration_range)
-        self.vm.playback_state_changed.connect(self.btn_play.setText)
+        self.vm.playback_state_changed.connect(self._on_playback_state_changed)
         self.vm.volume_icon_changed.connect(self.lbl_vol_icon.setText)
         self.vm.volume_changed.connect(self.sync_volume_slider)
         self.vm.queue_cleared.connect(self.reset_ui)
@@ -215,27 +310,21 @@ class MusicPlayerWidget(QWidget):
         self.btn_prev.clicked.connect(self.vm.prev_track)
         self.sld_progress.sliderReleased.connect(lambda: self.vm.set_position(self.sld_progress.value()))
 
-        # setValue() already fires valueChanged on both click and drag
-        # (ClickableSlider calls it in both cases), so a single connection
-        # covers both without duplicating calls.
         self.sld_volume.valueChanged.connect(self.vm.set_volume)
 
         self.lbl_vol_icon.clicked.connect(self.vm.toggle_mute)
         self.cmb_output.activated.connect(self.vm.set_output_device_by_index)
 
-        # The ViewModel may have already emitted the initial output list
-        # before this widget existed (in its __init__), so pull the
-        # current state explicitly instead of relying only on the signal.
+        # The ViewModel may have already emitted its initial state before
+        # this widget existed to receive it, so pull it explicitly too.
         self.populate_output_combo(self.vm.get_available_output_descriptions())
         self.sync_output_combo(self.vm.get_current_output_index())
         self.sync_output_combo_palette()
+        self.sync_volume_slider(round(self.vm.audio_output.volume() * 100))
 
     def sync_output_combo_palette(self) -> None:
-        """The popup's item highlighting turned out to come from its
-        QPalette (Highlight/HighlightedText), not the QSS ::item:selected
-        rule — same underlying cause as the QColorDialog fix in
-        ui/settings_overlay.py. Overriding the palette directly is what
-        actually controls it; QSS alone wasn't enough."""
+        """The popup's item highlighting comes from its QPalette, not the
+        QSS ::item:selected rule, so it's overridden directly here."""
         primary = self.config.get_primary_color()
         bg_hex, text_hex, _field, _border = theme_manager.get_neutral_dialog_colors(self.config)
 
@@ -262,12 +351,31 @@ class MusicPlayerWidget(QWidget):
         self.cmb_output.blockSignals(False)
 
     def set_glow_color(self, color_hex: str) -> None:
-        """Recolors the play button's neon glow (called by MainWindow when
-        the primary color changes in Settings). The glow is painted via
-        QGraphicsDropShadowEffect, so it isn't covered by the shared QSS."""
+        """Recolors the play button's neon glow (painted via
+        QGraphicsDropShadowEffect, not covered by QSS)."""
         color = QColor(color_hex)
         color.setAlpha(200)
         self._play_glow.setColor(color)
+
+    def set_icon_color(self, color_hex: str) -> None:
+        """Recolors the transport button icons to the secondary color."""
+        self._icon_prev = _make_prev_icon(color_hex, 16)
+        self._icon_stop = _make_stop_icon(color_hex, 16)
+        self._icon_next = _make_next_icon(color_hex, 16)
+        self._icon_play = _make_play_icon(color_hex, 18)
+        self._icon_pause = _make_pause_icon(color_hex, 18)
+
+        self.btn_prev.setIcon(self._icon_prev)
+        self.btn_stop.setIcon(self._icon_stop)
+        self.btn_next.setIcon(self._icon_next)
+        self._apply_play_pause_icon()
+
+    def _apply_play_pause_icon(self) -> None:
+        self.btn_play.setIcon(self._icon_pause if self._is_playing else self._icon_play)
+
+    def _on_playback_state_changed(self, symbol: str) -> None:
+        self._is_playing = (symbol == "⏸")
+        self._apply_play_pause_icon()
 
     def sync_volume_slider(self, value: int) -> None:
         """Updates the slider on programmatic volume changes (mute/unmute)
@@ -297,7 +405,8 @@ class MusicPlayerWidget(QWidget):
         return QTime(0, 0, 0).addMSecs(ms).toString("mm:ss")
 
     def reset_ui(self) -> None:
-        self.btn_play.setText("▶")
+        self._is_playing = False
+        self._apply_play_pause_icon()
         self.lbl_track_info.setText("No track loaded")
 
         self.sld_progress.blockSignals(True)

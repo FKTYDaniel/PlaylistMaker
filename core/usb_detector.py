@@ -17,12 +17,7 @@ class UsbDetectorThread(QThread):
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="usb-probe")
 
     def stop(self) -> None:
-        """Stops the detection loop and waits for the thread to finish.
-
-        The executor is intentionally NOT shut down here: the user can
-        cancel and restart the search multiple times, and a shut-down
-        ThreadPoolExecutor rejects new submissions. Python guarantees the
-        executor is cleaned up on process exit."""
+        """Stops the detection loop and waits for the thread to finish."""
         self.running = False
         self.wait()
 
@@ -53,12 +48,8 @@ class UsbDetectorThread(QThread):
         return removable
 
     def _get_removable_drives_with_timeout(self) -> List[Tuple[str, str]]:
-        """Runs get_removable_drives() with a time limit.
-
-        If a misbehaving drive makes the native call take longer than
-        PROBE_TIMEOUT_SECONDS, this gives up on the current cycle and
-        returns the last known list instead of blocking the detection
-        loop (and, by extension, stop()) indefinitely."""
+        """Runs get_removable_drives() with a time limit, falling back to
+        the last known list if a drive hangs the native call."""
         future = self._executor.submit(self.get_removable_drives)
         try:
             return future.result(timeout=self.PROBE_TIMEOUT_SECONDS)

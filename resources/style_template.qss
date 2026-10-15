@@ -19,7 +19,7 @@ QWidget {
 /* Vivid, theme-aware text-selection color for every input field —
    otherwise it falls back to whatever accent Qt/the OS defaults to,
    unrelated to this app's own color scheme. */
-QLineEdit {
+QLineEdit, QPlainTextEdit {
     selection-background-color: {{PRIMARY}};
     selection-color: {{ON_PRIMARY}};
 }
@@ -77,24 +77,12 @@ QLineEdit {
 }
 
 /* Hover/selection and the persistent "active file" marker are painted by
-   TreeRowHighlightDelegate (see ui/main_window.py), not by QSS. That
-   delegate only covers column 0's own rect though — the branch/expand-
-   arrow strip to its left is painted natively by Qt, which otherwise
-   fills it with the platform's own selection color on a selected/hovered
-   row (visible as a stray colored sliver to the left of the delegate's
-   own highlight). Neutralizing it here keeps that strip transparent in
-   every state so only the delegate's own highlight shows. */
-#globalTree::branch {
-    background: transparent;
-}
-
-#globalTree::branch:hover {
-    background: transparent;
-}
-
-#globalTree::branch:selected {
-    background: transparent;
-}
+   TreeRowHighlightDelegate (see ui/main_window.py), not by QSS.
+   The expand/collapse arrow itself is drawn by ArrowBranchStyle (also in
+   ui/main_window.py), not by QSS either: as soon as ::branch carries ANY
+   QSS declaration, Qt stops drawing its built-in arrow glyph unless a
+   static "image:" is also given — which can't be recolored at runtime.
+   So ::branch itself is deliberately left unstyled here. */
 
 /* -------------------- Context menus -------------------- */
 
@@ -124,6 +112,13 @@ QMenu::item:selected {
 QTabWidget::pane {
     border: 1px solid {{BORDER}};
     border-radius: 6px;
+    background-color: {{BG_APP}};
+}
+
+/* The pages and their stack must not paint their own square background,
+   or it covers the pane's rounded corners. */
+#mainTabs QStackedWidget, #musicTab, #playlistTab {
+    background: transparent;
 }
 
 QTabBar::tab {
@@ -148,14 +143,14 @@ QTabBar::tab:hover:!selected {
 
 /* -------------------- Music tab -------------------- */
 
-#musicTab QLineEdit {
+#musicTab QLineEdit, #musicTab QPlainTextEdit {
     background-color: {{BG_INPUT}};
     border: 1px solid {{BORDER_INPUT}};
     border-radius: 5px;
     padding: 6px 8px;
 }
 
-#musicTab QLineEdit:focus {
+#musicTab QLineEdit:focus, #musicTab QPlainTextEdit:focus {
     border: 1px solid {{PRIMARY}};
 }
 
@@ -212,10 +207,14 @@ QTabBar::tab:hover:!selected {
     border-color: {{SECONDARY}};
 }
 
-#playlistButtonColumn {
+#playlistButtonColumn, #playlistRepeatBox {
     background-color: {{BG_PANEL}};
     border: 1px solid {{BORDER}};
     border-radius: 6px;
+}
+
+#playlistRepeatBox QLabel {
+    background: transparent;
 }
 
 #playlistEditorList {
@@ -454,6 +453,40 @@ QSlider#sldVolume::handle:horizontal {
     font-weight: bold;
 }
 #btnCancelOverlay:hover {
+    background-color: {{DANGER}};
+    border-color: {{DANGER}};
+    color: {{ON_DANGER}};
+}
+
+/* Confirm buttons for ConfirmDialog (ui/overlay.py) — same outline
+   family as #btnCancelOverlay (subtle by default, fills with its accent
+   color on hover), so the two always look like they belong together
+   regardless of which one is "Cancel" and which is the affirmative
+   action. Destructive actions (e.g. deleting a playlist) get the danger
+   color; anything else gets primary. */
+#btnConfirmOverlay {
+    background-color: {{BG_INPUT}};
+    color: {{TEXT}};
+    border: 1px solid {{PRIMARY}};
+    border-radius: 5px;
+    padding: 6px 18px;
+    font-weight: bold;
+}
+#btnConfirmOverlay:hover {
+    background-color: {{PRIMARY}};
+    border-color: {{PRIMARY}};
+    color: {{ON_PRIMARY}};
+}
+
+#btnConfirmDestructive {
+    background-color: {{BG_INPUT}};
+    color: {{TEXT}};
+    border: 1px solid {{DANGER}};
+    border-radius: 5px;
+    padding: 6px 18px;
+    font-weight: bold;
+}
+#btnConfirmDestructive:hover {
     background-color: {{DANGER}};
     border-color: {{DANGER}};
     color: {{ON_DANGER}};

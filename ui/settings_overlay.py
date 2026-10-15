@@ -10,9 +10,7 @@ from core import theme_manager
 
 class ColorSwatchButton(QPushButton):
     """Square button showing the current color; opens a QColorDialog on
-    click. Its own color is painted via an inline stylesheet, since an
-    arbitrary user-picked color can't live in the shared QSS (which only
-    knows the global PRIMARY/SECONDARY tokens)."""
+    click."""
 
     color_changed = pyqtSignal(str)  # emits the new hex color
 
@@ -33,15 +31,8 @@ class ColorSwatchButton(QPushButton):
         return self._current_color
 
     def _open_color_dialog(self) -> None:
-        """Opens QColorDialog with a theme-neutral background.
-
-        Some of the dialog's internal elements (the "Basic colors"/"Custom
-        colors" labels and the Hue/Sat/Val/Red/Green/Blue/HTML fields) can
-        otherwise end up using the currently selected color as their own
-        background. Both the QSS and the QPalette are overridden here,
-        covering the two most likely mechanisms: some internal widgets
-        respect stylesheets, others paint themselves from the palette
-        directly (most likely via the Highlight role)."""
+        """Opens QColorDialog with a theme-neutral background (both QSS
+        and QPalette overridden, since internal widgets use either)."""
         bg, text, field_bg, border = theme_manager.get_neutral_dialog_colors(self.config)
 
         dialog = QColorDialog(QColor(self._current_color), self)
@@ -90,9 +81,7 @@ class ColorSwatchButton(QPushButton):
 
 
 class SettingsOverlay(QDialog):
-    """Settings overlay, modal in the same spirit as UsbWaitingOverlay: no
-    title bar, no Escape/click-outside dismissal — only the Close button
-    hides it."""
+    """Settings overlay; only the Close button dismisses it."""
 
     theme_changed = pyqtSignal(str)
     primary_color_changed = pyqtSignal(str)

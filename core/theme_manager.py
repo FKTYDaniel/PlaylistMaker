@@ -5,8 +5,6 @@ from PyQt6.QtGui import QColor
 from core.config_manager import ConfigManager
 
 
-# DANGER and SUCCESS are not user-customizable, so their contrasting text
-# colors don't need dynamic computation.
 FIXED_TOKENS = {
     "DANGER": "#ff5c5c",
     "ON_DANGER": "#1a1a1a",
@@ -104,20 +102,15 @@ def _resolve_theme_tokens(config: ConfigManager) -> dict:
 
 
 def get_neutral_dialog_colors(config: ConfigManager) -> tuple:
-    """Returns (background, text, field, border) neutral colors matching
-    the current theme, for native Qt dialogs not reliably covered by the
-    global stylesheet — namely QColorDialog, whose internal preview area
-    can end up using the selected color as its own background instead of
-    respecting the theme (see ui/settings_overlay.py)."""
+    """Returns (background, text, field, border) for native Qt dialogs
+    not covered by the global stylesheet."""
     tokens = _resolve_theme_tokens(config)
     return tokens["BG_PANEL"], tokens["TEXT"], tokens["BG_INPUT"], tokens["BORDER_INPUT"]
 
 
 def get_hover_background(config: ConfigManager) -> str:
-    """Returns the theme's neutral hover/selected gray, for the one place
-    that paints it manually instead of through QSS: the playlist's row
-    highlight (see ui/tabs/playlist_tab.py), which needs to stay inset
-    from the "now playing" bar."""
+    """Returns the theme's neutral hover/selected gray, for delegates that
+    paint it manually instead of through QSS."""
     return _resolve_theme_tokens(config)["HOVER_BG"]
 
 

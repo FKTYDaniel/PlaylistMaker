@@ -1,22 +1,16 @@
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QApplication
-from PyQt6.QtCore import Qt, QTime, QTimer, pyqtSignal, QPoint, QPropertyAnimation, QEasingCurve, QRectF
+from PyQt6.QtCore import Qt, QTime, QTimer, pyqtSignal, QPoint, QPropertyAnimation, QEasingCurve, QRectF, QSize
 from PyQt6.QtGui import QMouseEvent, QCloseEvent, QPainter, QPainterPath, QColor, QPen, QEnterEvent
 from PyQt6.QtMultimedia import QMediaPlayer
-from ui.player_widget import ClickableSlider, ClickableLabel
+from ui.player_widget import (ClickableSlider, ClickableLabel, _make_play_icon, _make_pause_icon,
+                              _make_stop_icon, _make_prev_icon, _make_next_icon)
 from viewmodels.player_viewmodel import PlayerViewModel
 from core import theme_manager
 
 
 class MarqueeLabel(QLabel):
-    """A label that scrolls its text left when it doesn't fit the
-    available width.
-
-    There's no built-in Qt widget for this, so it's hand-rolled: a QTimer
-    advances a pixel offset used to draw the text shifted left in
-    paintEvent, clipped to the label's own rect. Sequence per cycle:
-    scroll to the end -> hold there -> reset to the start -> wait -> scroll
-    again.
-    """
+    """Label that scrolls its text left when it doesn't fit the available
+    width (hand-rolled, no built-in Qt widget for this)."""
 
     HOLD_AT_END_MS = 2000
     PAUSE_AT_START_MS = 3000
@@ -96,18 +90,8 @@ class MarqueeLabel(QLabel):
 
 
 class MiniPlayerWindow(QWidget):
-    """Compact always-on-top player, meant to stay open while the user
-    works in other apps without needing the full main window.
-
-    Shares the same PlayerViewModel as MusicPlayerWidget — this is just a
-    second, compact View over the same state, kept in sync by the same
-    signals, and deliberately mirrors the main player's layout/sizing
-    (same round transport buttons, same progress bar) rather than
-    inventing a different look.
-
-    Dragging and corner snapping are implemented by hand: Qt/Windows has
-    no built-in "magnetism" API for arbitrary app windows.
-    """
+    """Compact always-on-top player that shares the same PlayerViewModel
+    as MusicPlayerWidget. Dragging and corner snapping are hand-rolled."""
 
     restore_requested = pyqtSignal()
 
@@ -119,19 +103,12 @@ class MiniPlayerWindow(QWidget):
         self.config = config
         self._drag_offset: QPoint | None = None
         self._current_duration = 0
+        self._is_playing = False
         self._panel_bg = QColor("#1e1e22")
         self._panel_border = QColor("#ff2bd6")
 
         self.setObjectName("miniPlayer")
-        # The container's own background/border are painted by hand in
-        # paintEvent below (see refresh_panel_colors), not via QSS: mixing
-        # a QSS-styled background with WA_TranslucentBackground led to the
-        # whole window turning semi-transparent instead of just the
-        # corners. Painting a smooth, anti-aliased rounded rect ourselves,
-        # with the real window background left transparent, keeps the
-        # corners see-through without a hard-edged mask (which never quite
-        # lined up with the QSS-drawn border) and without breaking normal
-        # opaque rendering or mouse interaction anywhere inside the shape.
+        # Background/border are painted by hand in paintEvent, not QSS.
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setWindowFlags(
             Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint
@@ -139,18 +116,33 @@ class MiniPlayerWindow(QWidget):
         self.setFixedSize(320, 140)
         self.setWindowOpacity(0.75)
 
-        self.refresh_panel_colors()
         self.init_ui()
+        self.refresh_panel_colors()
         self.bind_viewmodel()
 
     def refresh_panel_colors(self) -> None:
-        """Re-reads the panel background (theme-neutral) and border
-        (secondary color) from the config, so this stays in sync if the
-        user changes them in Settings while the mini player is open."""
+        """Re-reads the panel background and border (secondary color)
+        from config, and recolors the transport icons to match."""
         bg_hex, _text, _field, _border = theme_manager.get_neutral_dialog_colors(self.config)
         self._panel_bg = QColor(bg_hex)
-        self._panel_border = QColor(self.config.get_secondary_color())
+        secondary = self.config.get_secondary_color()
+        self._panel_border = QColor(secondary)
+
+        self._icon_prev = _make_prev_icon(secondary, 16)
+        self._icon_stop = _make_stop_icon(secondary, 16)
+        self._icon_next = _make_next_icon(secondary, 16)
+        self._icon_play = _make_play_icon(secondary, 18)
+        self._icon_pause = _make_pause_icon(secondary, 18)
+
+        self.btn_prev.setIcon(self._icon_prev)
+        self.btn_stop.setIcon(self._icon_stop)
+        self.btn_next.setIcon(self._icon_next)
+        self._apply_play_pause_icon()
+
         self.update()
+
+    def _apply_play_pause_icon(self) -> None:
+        self.btn_play.setIcon(self._icon_pause if self._is_playing else self._icon_play)
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
@@ -208,18 +200,20 @@ class MiniPlayerWindow(QWidget):
         controls_row = QHBoxLayout()
         controls_row.setSpacing(8)
 
-        self.btn_prev = QPushButton("⏮")
-        self.btn_play = QPushButton("▶")
-        self.btn_stop = QPushButton("⏹")
-        self.btn_next = QPushButton("⏭")
+        self.btn_prev = QPushButton()
+        self.btn_play = QPushButton()
+        self.btn_stop = QPushButton()
+        self.btn_next = QPushButton()
 
         for btn in (self.btn_prev, self.btn_play, self.btn_stop, self.btn_next):
-            # Same size as MusicPlayerWidget's transport buttons: the
-            # border-radius that makes them round only forms a perfect
-            # circle at this exact size (radius = half of it).
             btn.setFixedSize(34, 34)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setObjectName("btnTransport")
+
+        self.btn_prev.setIconSize(QSize(16, 16))
+        self.btn_stop.setIconSize(QSize(16, 16))
+        self.btn_next.setIconSize(QSize(16, 16))
+        self.btn_play.setIconSize(QSize(18, 18))
 
         self.btn_play.setObjectName("btnPlay")
 
@@ -249,7 +243,7 @@ class MiniPlayerWindow(QWidget):
         self.vm.track_info_changed.connect(self.lbl_track_info.setText)
         self.vm.position_changed.connect(self.update_progress_slider)
         self.vm.duration_changed.connect(self.update_duration_range)
-        self.vm.playback_state_changed.connect(self.btn_play.setText)
+        self.vm.playback_state_changed.connect(self._on_playback_state_changed)
         self.vm.volume_icon_changed.connect(self.lbl_vol_icon.setText)
         self.vm.volume_changed.connect(self.sync_volume_slider)
         self.vm.queue_cleared.connect(self.reset_ui)
@@ -264,17 +258,15 @@ class MiniPlayerWindow(QWidget):
 
         self.btn_restore.clicked.connect(self.restore_requested.emit)
 
-        # The ViewModel may have already been playing before this window
-        # existed to receive track_info_changed/duration_changed/etc., so
-        # the current state is pulled explicitly here instead of relying
-        # only on future signals (same reasoning as the output dropdown
-        # in MusicPlayerWidget).
+        # The ViewModel may already have state (track/position/volume)
+        # before this window existed to receive signals, so pull it now.
         self.lbl_track_info.setText(self.vm.get_current_track_display())
         self.update_duration_range(self.vm.player.duration())
         self.update_progress_slider(self.vm.player.position())
         is_playing = self.vm.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
-        self.btn_play.setText("⏸" if is_playing else "▶")
-        self.sync_volume_slider(int(self.vm.audio_output.volume() * 100))
+        self._is_playing = is_playing
+        self._apply_play_pause_icon()
+        self.sync_volume_slider(round(self.vm.audio_output.volume() * 100))
 
     def update_progress_slider(self, position: int) -> None:
         if not self.sld_progress.isSliderDown():
@@ -297,8 +289,13 @@ class MiniPlayerWindow(QWidget):
         self.sld_volume.setValue(value)
         self.sld_volume.blockSignals(False)
 
+    def _on_playback_state_changed(self, symbol: str) -> None:
+        self._is_playing = (symbol == "⏸")
+        self._apply_play_pause_icon()
+
     def reset_ui(self) -> None:
-        self.btn_play.setText("▶")
+        self._is_playing = False
+        self._apply_play_pause_icon()
         self.lbl_track_info.setText("No track loaded")
         self._current_duration = 0
         self.sld_progress.blockSignals(True)
@@ -337,9 +334,8 @@ class MiniPlayerWindow(QWidget):
             event.accept()
 
     def _snap_to_nearest_corner(self) -> None:
-        """Always snaps to whichever of the 4 corners of the CURRENT
-        screen is nearest — never to an arbitrary point along an edge —
-        leaving CORNER_MARGIN pixels of breathing room from that corner."""
+        """Snaps to whichever of the 4 corners of the current screen is
+        nearest, leaving CORNER_MARGIN pixels of breathing room."""
         screen = QApplication.screenAt(self.frameGeometry().center()) or self.screen()
         if screen is None:
             return
@@ -357,16 +353,12 @@ class MiniPlayerWindow(QWidget):
 
         nearest = min(candidates, key=lambda p: (p.x() - geo.x()) ** 2 + (p.y() - geo.y()) ** 2)
 
-        # Animated instead of an instant jump, with an "overshoot and
-        # settle" easing curve for the rubber-band feel at the end — also
-        # gentler than a snap so the eye can actually follow it.
+        # Animated with an "overshoot and settle" curve for a rubber-band
+        # feel instead of an instant jump.
         self._snap_animation = QPropertyAnimation(self, b"pos", self)
         self._snap_animation.setDuration(400)
         self._snap_animation.setStartValue(self.pos())
         self._snap_animation.setEndValue(nearest)
-        # Default OutBack overshoot (~1.7) was ending up outside the
-        # monitor entirely; a much smaller value keeps the "rubber band"
-        # feel without the exaggerated jump.
         bounce_curve = QEasingCurve(QEasingCurve.Type.OutBack)
         bounce_curve.setOvershoot(0.6)
         self._snap_animation.setEasingCurve(bounce_curve)

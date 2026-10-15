@@ -1,39 +1,34 @@
 import os
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
                              QListWidget, QListWidgetItem, QListView, QLineEdit,
-                             QPushButton, QMessageBox, QAbstractItemView, QInputDialog,
+                             QPushButton, QAbstractItemView, QInputDialog,
                              QStyledItemDelegate, QStyle, QStyleOptionViewItem, QMenu,
-                             QApplication)
+                             QApplication, QLabel)
 from PyQt6.QtGui import (QKeyEvent, QDropEvent, QDragEnterEvent, QDragMoveEvent, QDragLeaveEvent,
                          QPainter, QColor, QPen, QIcon, QPixmap, QPalette, QFont)
-from PyQt6.QtCore import Qt, pyqtSignal, QRect, QRectF, QSize, QEvent, QTimer, QPropertyAnimation, QEasingCurve
+from PyQt6.QtCore import Qt, pyqtSignal, QRect, QRectF, QSize, QEvent, QTimer, QPropertyAnimation, QEasingCurve, QModelIndex, QPoint
 from viewmodels.playlist_viewmodel import PlaylistViewModel
 from core.audio_tools import AudioMetadataManager
 from core.library_scanner import LibraryScanThread
+from ui.toast import show_toast
+from ui.overlay import ConfirmDialog
+from ui.toggle_switch import ToggleSwitch
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
 
-# True if this item is the track currently loaded/playing in PlayerViewModel.
+# True if this item is the track currently loaded/playing.
 PLAYING_ROLE = Qt.ItemDataRole.UserRole + 100
-
-# Title read from the file's ID3 metadata (or the filename without
-# extension, as a fallback). Drawn in column 1 by the delegate; the item's
-# actual text() stays the relative path (the source of truth used for
-# saving/moving/etc.) and is only shown in column 3.
+# Title from ID3 metadata (or filename fallback); item.text() stays the
+# relative path, the actual source of truth.
 TITLE_ROLE = Qt.ItemDataRole.UserRole + 101
-
-# Artist read from ID3 metadata (column 2).
 ARTIST_ROLE = Qt.ItemDataRole.UserRole + 102
 
 
 def _make_plus_icon(color_hex: str, size: int = 16) -> QIcon:
-    """Hand-draws a "+" icon with QPainter instead of relying on a
-    QPushButton's text glyph, whose padding/baseline varies across Qt
-    styles and can end up visibly off-center on small buttons. Also lets
-    the icon be recolored freely to follow the user's secondary color."""
+    """Hand-drawn "+" icon (vector, so it can be recolored at runtime)."""
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
 
@@ -54,9 +49,7 @@ def _make_plus_icon(color_hex: str, size: int = 16) -> QIcon:
 
 
 def _make_person_icon(color_hex: str, size: int = 14) -> QIcon:
-    """Small "person" glyph (head + shoulders) for the "new playlist from
-    an artist" sub-option button. Same hand-drawn approach as
-    _make_plus_icon, for the same reasons."""
+    """Small "person" glyph for the "new playlist from an artist" button."""
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
 
@@ -80,9 +73,7 @@ def _make_person_icon(color_hex: str, size: int = 14) -> QIcon:
 
 
 def _make_genre_icon(color_hex: str, size: int = 14) -> QIcon:
-    """Small music-note glyph for the "new playlist from a genre" sub-
-    option button. Same hand-drawn approach as _make_plus_icon, for the
-    same reasons."""
+    """Small music-note glyph for the "new playlist from a genre" button."""
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
 
@@ -110,32 +101,22 @@ def _make_genre_icon(color_hex: str, size: int = 14) -> QIcon:
 
 
 class DropHighlightDelegate(QStyledItemDelegate):
-    """Draws:
-    1) each row split into 3 equal columns — Title (normal style), Artist
-       (same small size as the path, but the title's color), and Path
-       (small and faded) — instead of the single text a QListWidget would
-       show by default;
-    2) a neon line above or below the item being dragged over, to make it
-       clear whether the dragged track will land before or after it;
-    3) its own hover/selection highlight (a translucent fill plus
-       left/right borders, inset from the left edge), with no dotted
-       focus rectangle. Priority: live hover always wins (primary); a
-       track marked "now playing" — the result of a double-click, or the
-       "Play Music" context menu action — keeps a persistent secondary-
-       colored marker even when it's no longer the actual click-selection;
-       a plain single-click selection falls back to primary.
-    """
+    """Draws each row as 3 columns (Title/Artist/Path), a drag-reorder
+    hint line, and its own hover/selection/"now playing" highlight."""
 
-    LEFT_PADDING = 10  # room for the "now playing" bar
+    LEFT_PADDING = 10
     RIGHT_PADDING = 8
     COLUMN_GAP = 10
-    SMALL_FONT_SIZE_DELTA = -2  # points smaller than normal (artist and path)
-    HIGHLIGHT_LEFT_INSET = 8  # keeps the highlight clear of the "now playing" bar
+    SMALL_FONT_SIZE_DELTA = -2
+    HIGHLIGHT_LEFT_INSET = 8
+    HIGHLIGHT_RIGHT_INSET = 4  # keeps it clear of the scrollbar when one is shown
+    HINT_LINE_EXTRA_INSET = 5  # extra inset so the hint line clears the border
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.hint_row = -1
         self.hint_above = True
+        self.is_dragging = False
         self.accent_color = "#00e5ff"        # drag-reorder hint line (primary)
         self.hover_select_color = "#00e5ff"  # hover/selection border (primary)
         self.playing_color = "#ff2bd6"       # "now playing" bar (secondary)
@@ -149,6 +130,9 @@ class DropHighlightDelegate(QStyledItemDelegate):
 
     def clear_hint(self) -> None:
         self.hint_row = -1
+
+    def set_dragging(self, dragging: bool) -> None:
+        self.is_dragging = dragging
 
     def set_accent_color(self, color_hex: str) -> None:
         self.accent_color = color_hex
@@ -164,18 +148,13 @@ class DropHighlightDelegate(QStyledItemDelegate):
 
     def initStyleOption(self, option, index) -> None:
         super().initStyleOption(option, index)
-        # Suppress the default text (the full relative path); paint() draws
-        # our own three-column text instead.
-        option.text = ""
+        option.text = ""  # paint() draws its own three-column text instead
 
     def paint(self, painter: QPainter, option, index) -> None:
         is_selected = bool(option.state & QStyle.StateFlag.State_Selected)
         is_hover = bool(option.state & QStyle.StateFlag.State_MouseOver)
         is_playing = bool(index.data(PLAYING_ROLE))
 
-        # Paint the plain row (no native selection/hover fill and no
-        # dotted focus rectangle) — the highlight below is drawn by hand
-        # instead, so it can be inset from the left edge.
         plain_option = QStyleOptionViewItem(option)
         plain_option.state &= ~QStyle.StateFlag.State_Selected
         plain_option.state &= ~QStyle.StateFlag.State_MouseOver
@@ -184,27 +163,24 @@ class DropHighlightDelegate(QStyledItemDelegate):
 
         rect = option.rect
 
-        # Priority: live hover feedback always wins; otherwise a track
-        # marked "now playing" (the result of a double-click, or the
-        # "Play Music" context menu action) keeps its secondary-colored
-        # marker even when it's no longer the actual click-selection;
-        # a plain single-click selection falls back to primary.
+        # Priority: hover > "now playing" > plain selection. Suppressed
+        # entirely while dragging, so only the hint line shows then.
         highlight_color = None
-        if is_hover:
-            highlight_color = self.hover_select_color
-        elif is_playing:
-            highlight_color = self.playing_color
-        elif is_selected:
-            highlight_color = self.hover_select_color
+        if not self.is_dragging:
+            if is_hover:
+                highlight_color = self.hover_select_color
+            elif is_playing:
+                highlight_color = self.playing_color
+            elif is_selected:
+                highlight_color = self.hover_select_color
 
         if highlight_color:
             highlight_rect = QRect(
                 rect.left() + self.HIGHLIGHT_LEFT_INSET, rect.top(),
-                rect.width() - self.HIGHLIGHT_LEFT_INSET, rect.height()
+                rect.width() - self.HIGHLIGHT_LEFT_INSET - self.HIGHLIGHT_RIGHT_INSET, rect.height()
             )
             painter.save()
-            # Same neutral gray fill as the explorer's own hover/selected
-            # rows; only the left/right accent differs between lists.
+            painter.setClipRect(rect)
             painter.fillRect(highlight_rect, QColor(self.hover_bg_color))
             pen = QPen(QColor(highlight_color))
             pen.setWidth(2)
@@ -265,13 +241,22 @@ class DropHighlightDelegate(QStyledItemDelegate):
             pen = QPen(QColor(self.accent_color))
             pen.setWidth(3)
             painter.save()
+            painter.setClipRect(rect)
             painter.setPen(pen)
             y = rect.top() + 1 if self.hint_above else rect.bottom() - 1
-            painter.drawLine(rect.left() + 4, y, rect.right() - 4, y)
+            line_left = rect.left() + self.HIGHLIGHT_LEFT_INSET + self.HINT_LINE_EXTRA_INSET
+            line_right = rect.right() - self.HIGHLIGHT_RIGHT_INSET - self.HINT_LINE_EXTRA_INSET
+            painter.drawLine(line_left, y, line_right, y)
             painter.restore()
 
 
 class PlaylistEditorList(QListWidget):
+    # Autoscroll-during-drag (see _update_autoscroll).
+    AUTOSCROLL_ZONE_START = 0.40
+    AUTOSCROLL_ZONE_FULL_SPEED = 0.05
+    AUTOSCROLL_MAX_PX_PER_SEC = 350
+    AUTOSCROLL_INTERVAL_MS = 16  # ~60 steps/sec
+
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.parent_tab: PlaylistTab = parent
@@ -280,43 +265,18 @@ class PlaylistEditorList(QListWidget):
         self.setDragDropMode(QAbstractItemView.DragDropMode.DragDrop)
         self.setDefaultDropAction(Qt.DropAction.MoveAction)
         self.setMovement(QListView.Movement.Snap)
-        # The native Qt drop indicator and our custom line computed
-        # position slightly differently, causing a visual "jump" near item
-        # boundaries. Since we draw our own indicator in the delegate, the
-        # native one is disabled.
-        self.setDropIndicatorShown(False)
+        self.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.setDropIndicatorShown(False)  # replaced by the delegate's own line
 
         # Without this, Qt only updates the "hovered index" state on
-        # button press/release, not as the mouse simply moves over rows —
-        # which is why the custom hover highlight painted by the delegate
-        # (see DropHighlightDelegate.paint) never showed up.
         self.setMouseTracking(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
         self.drop_delegate = DropHighlightDelegate(self)
         self.setItemDelegate(self.drop_delegate)
 
-        # Qt's default partial-repaint region for a hover change moving
-        # smoothly through a row isn't always the full row rect, which
-        # left a dotted/broken trail of un-cleared highlight behind fast
-        # mouse movement. Forcing a full viewport repaint on every row
-        # change fixes that at a negligible cost for a list this size.
         self.entered.connect(lambda _index: self.viewport().update())
-
-        # `entered` only fires while the cursor sits over a valid item, so
-        # moving from the last row down into the empty space below it (no
-        # item there, but still inside the viewport) never emits it — the
-        # last-hovered row's highlight was left painted on screen with
-        # nothing to trigger clearing it. mouseMoveEvent covers that gap
-        # too, since it also runs over the empty area below the items.
-        self._last_hover_row = -1
-
-        # Likewise, changing the selection purely by clicking a different
-        # row (no further mouse movement afterwards) can leave the
-        # *previous* row's hand-painted border/fill on screen — Qt's own
-        # partial repaint on selection change doesn't reliably clear the
-        # delegate's custom-drawn extras. Forcing a full repaint on every
-        # selection change closes that gap.
+        self._last_hover_index = QModelIndex()
         self.itemSelectionChanged.connect(self.viewport().update)
 
         self.itemDoubleClicked.connect(self.handle_item_double_click)
@@ -324,13 +284,20 @@ class PlaylistEditorList(QListWidget):
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
 
+        # Replaces Qt's built-in fixed-margin/constant-speed autoscroll
+        # with the zone-based gradual version (see _update_autoscroll).
+        self.setAutoScroll(False)
+        self._autoscroll_timer = QTimer(self)
+        self._autoscroll_timer.setInterval(self.AUTOSCROLL_INTERVAL_MS)
+        self._autoscroll_timer.timeout.connect(self._autoscroll_tick)
+        self._autoscroll_speed = 0.0  # signed px/sec: negative = up, positive = down
+        self._last_drag_pos: QPoint | None = None
+
     def handle_item_double_click(self, item: QListWidgetItem) -> None:
         self._play_item(item)
 
     def _play_item(self, item: QListWidgetItem) -> None:
-        """Finds the given file in the Player's current queue and jumps to
-        it, so the right track plays even if the visual list has been
-        reordered but not saved to disk yet."""
+        """Finds the file in the Player's current queue and jumps to it."""
         main_win: "MainWindow" = self.window()
         if not (main_win and hasattr(main_win, 'player_widget')):
             return
@@ -397,26 +364,31 @@ class PlaylistEditorList(QListWidget):
         else:
             super().keyPressEvent(event)
 
-    def mouseMoveEvent(self, event) -> None:
-        super().mouseMoveEvent(event)
-
-        # Repaint whenever the hovered row changes, including transitions
-        # to/from the empty space below the last item (row == -1), which
-        # `entered` alone doesn't cover — see the comment in __init__.
-        row = self.indexAt(event.position().toPoint()).row()
-        if row != self._last_hover_row:
-            self._last_hover_row = row
+    def _update_hover_index(self, index) -> None:
+        if index != self._last_hover_index:
+            self._last_hover_index = index
             self.viewport().update()
 
+    def viewportEvent(self, event) -> bool:
+        """Reads MouseMove/Leave off the viewport directly, since the
+        view's own mouseMoveEvent/leaveEvent misses some exit paths."""
+        if event.type() == QEvent.Type.MouseMove:
+            self._update_hover_index(self.indexAt(event.position().toPoint()))
+        elif event.type() == QEvent.Type.Leave:
+            self._update_hover_index(QModelIndex())
+        return super().viewportEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        super().mouseMoveEvent(event)
+        self._update_hover_index(self.indexAt(event.position().toPoint()))
+
     def leaveEvent(self, event) -> None:
-        # Otherwise the last-hovered row's highlight can linger after the
-        # mouse actually leaves the list entirely.
-        self._last_hover_row = -1
-        self.viewport().update()
+        self._update_hover_index(QModelIndex())
         super().leaveEvent(event)
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         if event.source() == self or event.mimeData().hasUrls():
+            self.drop_delegate.set_dragging(True)
             event.acceptProposedAction()
         else:
             super().dragEnterEvent(event)
@@ -430,20 +402,21 @@ class PlaylistEditorList(QListWidget):
 
     def dragLeaveEvent(self, event: QDragLeaveEvent) -> None:
         self.drop_delegate.clear_hint()
+        self.drop_delegate.set_dragging(False)
+        self._set_autoscroll_speed(0.0)
+        self._last_drag_pos = None
         self.viewport().update()
         super().dragLeaveEvent(event)
 
     def _update_drop_hint(self, event: QDragMoveEvent) -> None:
-        """Computes a single canonical insertion position and always maps
-        it to the same visual rule: a line below the item before the
-        insertion point, except when inserting at the very start of the
-        list, which draws above the first item.
-
-        This avoids the earlier ambiguity where the same logical position
-        could be represented either as "below item i" or "above item i+1"
-        depending on which half of the item the cursor was over, which
-        made the line appear to jump."""
+        """A line below the item before the insertion point, or above the
+        first item if inserting at the very start."""
         pos = event.position().toPoint()
+        self._last_drag_pos = pos
+        self._compute_and_set_hint(pos)
+        self._update_autoscroll(pos.y())
+
+    def _compute_and_set_hint(self, pos: QPoint) -> None:
         index = self.indexAt(pos)
 
         if index.isValid():
@@ -461,8 +434,61 @@ class PlaylistEditorList(QListWidget):
 
         self.viewport().update()
 
+    def _update_autoscroll(self, y: int) -> None:
+        """Sets the autoscroll speed from the cursor's y position during
+        a drag, per the AUTOSCROLL_ZONE_* thresholds above."""
+        height = self.viewport().height()
+        if height <= 0:
+            self._set_autoscroll_speed(0.0)
+            return
+
+        zone_start_px = height * self.AUTOSCROLL_ZONE_START
+        zone_full_px = height * self.AUTOSCROLL_ZONE_FULL_SPEED
+        span = max(1.0, zone_start_px - zone_full_px)
+
+        speed = 0.0
+        if y < zone_start_px:
+            fraction = 1.0 if y <= zone_full_px else (zone_start_px - y) / span
+            speed = -max(0.0, min(1.0, fraction)) * self.AUTOSCROLL_MAX_PX_PER_SEC
+        elif y > height - zone_start_px:
+            dist_from_bottom = height - y
+            fraction = 1.0 if dist_from_bottom <= zone_full_px else (zone_start_px - dist_from_bottom) / span
+            speed = max(0.0, min(1.0, fraction)) * self.AUTOSCROLL_MAX_PX_PER_SEC
+
+        self._set_autoscroll_speed(speed)
+
+    def _set_autoscroll_speed(self, speed: float) -> None:
+        self._autoscroll_speed = speed
+        if speed != 0.0:
+            if not self._autoscroll_timer.isActive():
+                self._autoscroll_timer.start()
+        else:
+            self._autoscroll_timer.stop()
+
+    def _autoscroll_tick(self) -> None:
+        if self._autoscroll_speed == 0.0:
+            self._autoscroll_timer.stop()
+            return
+
+        scrollbar = self.verticalScrollBar()
+        if scrollbar.maximum() == scrollbar.minimum():
+            return  # Nothing to scroll (whole playlist already fits).
+
+        delta = self._autoscroll_speed * (self.AUTOSCROLL_INTERVAL_MS / 1000.0)
+        new_value = scrollbar.value() + delta
+        new_value = max(scrollbar.minimum(), min(scrollbar.maximum(), new_value))
+        scrollbar.setValue(int(round(new_value)))
+
+        # Content moved under a cursor that may not have, so recompute
+        # the hint for whatever row is now underneath it.
+        if self._last_drag_pos is not None:
+            self._compute_and_set_hint(self._last_drag_pos)
+
     def dropEvent(self, event: QDropEvent) -> None:
         self.drop_delegate.clear_hint()
+        self.drop_delegate.set_dragging(False)
+        self._set_autoscroll_speed(0.0)
+        self._last_drag_pos = None
         self.viewport().update()
 
         if event.source() == self:
@@ -470,7 +496,7 @@ class PlaylistEditorList(QListWidget):
             return
 
         if not self.parent_tab.vm.current_playlist_file:
-            QMessageBox.warning(self, "Warning", "Open or create a playlist first.")
+            show_toast(self, "Open or create a playlist first.", level="warning")
             return
 
         if event.mimeData().hasUrls():
@@ -486,6 +512,7 @@ class PlaylistTab(QWidget):
     PLAYING_BACKGROUND = QColor(0, 229, 255, 40)
 
     edit_metadata_requested = pyqtSignal(str)  # absolute path of the track to edit
+    repeat_mode_changed = pyqtSignal(str)  # "off" | "one" | "all"
 
     def __init__(self, view_model: PlaylistViewModel) -> None:
         super().__init__()
@@ -495,9 +522,7 @@ class PlaylistTab(QWidget):
         self.init_ui()
         self.bind_viewmodel()
         self._setup_new_playlist_drawer()
-        # Clicking anywhere outside the playlist area (but not on its own
-        # action buttons/name field) clears its selection, without ever
-        # touching the explorer's own selection.
+        # Clears the selection on clicks outside the playlist area.
         QApplication.instance().installEventFilter(self)
 
     def eventFilter(self, obj, event) -> bool:
@@ -506,10 +531,8 @@ class PlaylistTab(QWidget):
             if clicked is not None and not self._is_within_playlist_area(clicked):
                 self.playlist_list.clearSelection()
         elif obj in (self.btn_new, self.btn_by_artist, self.btn_by_genre):
-            # Keeps the "+" sub-option drawer open while the cursor is over
-            # any of the three buttons, and starts the auto-close countdown
-            # the moment it leaves all of them (restarted/cancelled by the
-            # next Enter, so hopping between the three never closes it).
+            # Keeps the "+" sub-option drawer open over any of the three
+            # buttons; auto-close starts the moment it leaves all of them.
             if event.type() == QEvent.Type.Enter:
                 self._open_new_playlist_drawer()
             elif event.type() == QEvent.Type.Leave:
@@ -527,12 +550,8 @@ class PlaylistTab(QWidget):
         return False
 
     def _setup_new_playlist_drawer(self) -> None:
-        """Wires up the slide-open/auto-close behavior for the "+" button's
-        Artist/Genre sub-options (see the drawer_container built in
-        init_ui). A single animation on the container's own maximumHeight
-        does the "cascade" reveal: as it grows top-down, Artist (closer to
-        "+") is uncovered first and Genre shortly after, like a drawer
-        opening — no need to juggle two separate per-button animations."""
+        """Wires up the slide-open/auto-close behavior for the "+"
+        button's Artist/Genre sub-options."""
         self._drawer_open = False
         self._drawer_anim: QPropertyAnimation | None = None
 
@@ -545,10 +564,6 @@ class PlaylistTab(QWidget):
             btn.installEventFilter(self)
 
     def _animate_drawer_to(self, target_height: int, easing: QEasingCurve.Type) -> None:
-        # A fresh QPropertyAnimation per call (instead of restarting one
-        # long-lived instance) avoids relying on stop()/start() leaving a
-        # perfectly clean internal state across many rapid open/close
-        # cycles — cheap to create, and there's never more than one alive.
         if self._drawer_anim is not None:
             self._drawer_anim.stop()
 
@@ -557,13 +572,8 @@ class PlaylistTab(QWidget):
         anim.setEasingCurve(easing)
         anim.setStartValue(self.drawer_container.maximumHeight())
         anim.setEndValue(target_height)
-        # Driving maximumHeight alone leaves the widget's *actual* height
-        # governed only by whatever the parent QVBoxLayout last computed
-        # for it — after it's been collapsed to 0 once, some later resizes
-        # don't reliably trigger a fresh layout pass on their own. Pinning
-        # minimumHeight to the same value on every frame removes that
-        # ambiguity and keeps the drawer's visible height in lockstep with
-        # the animation instead of jumping straight to its end state.
+        # Pinning minimumHeight too keeps the layout in lockstep with the
+        # animation instead of jumping straight to its end state.
         anim.valueChanged.connect(lambda value: self.drawer_container.setMinimumHeight(value))
         self._drawer_anim = anim
         anim.start()
@@ -590,14 +600,34 @@ class PlaylistTab(QWidget):
         form_layout = QFormLayout()
         self.edit_name = QLineEdit()
         self.edit_name.setMaxLength(30)
-        # "M" is the widest possible character, so sizing off 33 of them
-        # left a large gap for any realistic text. Average char width for
-        # the 30-char limit, plus a small buffer matching the field's own
-        # left inset, fits much closer to what people actually type.
         name_metrics = self.edit_name.fontMetrics()
         self.edit_name.setFixedWidth(name_metrics.averageCharWidth() * 38 + 24)
         form_layout.addRow("Playlist Name:", self.edit_name)
-        layout.addLayout(form_layout)
+
+        self.toggle_repeat_one = ToggleSwitch()
+        self.toggle_repeat_one.setToolTip("Repeat the current track")
+        self.toggle_repeat_all = ToggleSwitch()
+        self.toggle_repeat_all.setToolTip("Restart the playlist when it ends")
+        self._repeat_mode = "off"
+        self.toggle_repeat_one.toggled.connect(lambda on: self._on_repeat_toggled(self.toggle_repeat_one, on))
+        self.toggle_repeat_all.toggled.connect(lambda on: self._on_repeat_toggled(self.toggle_repeat_all, on))
+
+        self.repeat_box = QWidget()
+        self.repeat_box.setObjectName("playlistRepeatBox")
+        repeat_layout = QHBoxLayout(self.repeat_box)
+        repeat_layout.setContentsMargins(14, 6, 14, 6)
+        repeat_layout.setSpacing(8)
+        repeat_layout.addWidget(QLabel("Repeat One"))
+        repeat_layout.addWidget(self.toggle_repeat_one)
+        repeat_layout.addSpacing(10)
+        repeat_layout.addWidget(QLabel("Repeat All"))
+        repeat_layout.addWidget(self.toggle_repeat_all)
+
+        name_row = QHBoxLayout()
+        name_row.addLayout(form_layout)
+        name_row.addStretch(1)
+        name_row.addWidget(self.repeat_box)
+        layout.addLayout(name_row)
 
         content_layout = QHBoxLayout()
         content_layout.setSpacing(10)
@@ -620,18 +650,12 @@ class PlaylistTab(QWidget):
         self.btn_new.setToolTip("New playlist")
         button_column.addWidget(self.btn_new)
 
-        # "New playlist by Artist/Genre" — smaller sub-option buttons that
-        # slide open beneath "+" like a drawer on hover, and auto-close a
-        # couple of seconds after the mouse leaves all three buttons. See
-        # _open_new_playlist_drawer/_close_new_playlist_drawer and the
-        # Enter/Leave handling added to eventFilter() below.
+        # "New playlist by Artist/Genre" sub-option buttons; see
+        # _open_new_playlist_drawer/_close_new_playlist_drawer.
         self.drawer_container = QWidget()
         self.drawer_container.setObjectName("playlistNewDrawer")
         self.drawer_container.setMaximumHeight(0)
         drawer_layout = QVBoxLayout(self.drawer_container)
-        # Bigger gap between "+" and the first sub-option (matches the
-        # Delete->Clear gap below); no side margins so AlignHCenter below
-        # can center the (narrower) sub-buttons under "+" on its own.
         drawer_layout.setContentsMargins(0, 20, 0, 0)
         drawer_layout.setSpacing(0)
 
@@ -700,7 +724,7 @@ class PlaylistTab(QWidget):
         self.vm.tracks_updated.connect(self.on_tracks_updated)
         self.vm.playlist_saved.connect(self.on_save_success)
         self.vm.playlist_cleared.connect(self.on_playlist_cleared)
-        self.vm.error_occurred.connect(lambda msg: QMessageBox.critical(self, "Error", msg))
+        self.vm.error_occurred.connect(lambda msg: show_toast(self, msg, level="error"))
 
         self.edit_name.textChanged.connect(lambda: self.evaluate_save_button())
 
@@ -710,6 +734,21 @@ class PlaylistTab(QWidget):
         self.btn_save.clicked.connect(self.on_save_clicked)
         self.btn_delete.clicked.connect(self.on_delete_clicked)
         self.btn_clear.clicked.connect(self.vm.reset_state)
+
+    def _on_repeat_toggled(self, source: ToggleSwitch, checked: bool) -> None:
+        """Keeps Repeat One and Repeat All mutually exclusive."""
+        if checked:
+            other = self.toggle_repeat_all if source is self.toggle_repeat_one else self.toggle_repeat_one
+            other.setChecked(False)
+        if self.toggle_repeat_one.isChecked():
+            mode = "one"
+        elif self.toggle_repeat_all.isChecked():
+            mode = "all"
+        else:
+            mode = "off"
+        if mode != self._repeat_mode:
+            self._repeat_mode = mode
+            self.repeat_mode_changed.emit(mode)
 
     def set_controls_enabled(self, enabled: bool) -> None:
         if not enabled:
@@ -721,12 +760,12 @@ class PlaylistTab(QWidget):
     def on_new_playlist_clicked(self) -> None:
         main_win: "MainWindow" = self.window()
         if not main_win or not hasattr(main_win, 'file_model'):
-            QMessageBox.warning(self, "Warning", "Please wait for USB drive detection.")
+            show_toast(self, "Please wait for USB drive detection.", level="warning")
             return
 
         root = main_win.file_model.rootPath()
         if not root:
-            QMessageBox.warning(self, "Warning", "No folder or USB drive selected.")
+            show_toast(self, "No folder or USB drive selected.", level="warning")
             return
 
         name, ok = QInputDialog.getText(self, "New Playlist", "Enter the new playlist name:")
@@ -748,23 +787,20 @@ class PlaylistTab(QWidget):
         )
 
     def _start_smart_playlist_flow(self, field: str, dialog_title: str, prompt: str) -> None:
-        """Shared "by Artist"/"by Genre" flow: ask for the name (used both
-        as the match criteria and as the playlist's own title), then scan
-        the active drive/folder for it in the background (see
-        core/library_scanner.py) and drop the results straight into the
-        normal load flow, same as clicking an item in the explorer would."""
+        """Shared "by Artist"/"by Genre" flow: asks for the match value,
+        scans the active drive in the background, then loads the result."""
         if self._scan_thread is not None:
-            QMessageBox.information(self, "Please wait", "Already scanning the library — please wait for it to finish.")
+            show_toast(self, "Already scanning the library — please wait for it to finish.", level="info")
             return
 
         main_win: "MainWindow" = self.window()
         if not main_win or not hasattr(main_win, 'file_model'):
-            QMessageBox.warning(self, "Warning", "Please wait for USB drive detection.")
+            show_toast(self, "Please wait for USB drive detection.", level="warning")
             return
 
         root = main_win.file_model.rootPath()
         if not root:
-            QMessageBox.warning(self, "Warning", "No folder or USB drive selected.")
+            show_toast(self, "No folder or USB drive selected.", level="warning")
             return
 
         value, ok = QInputDialog.getText(self, dialog_title, prompt)
@@ -791,18 +827,16 @@ class PlaylistTab(QWidget):
 
     def _on_scan_finished(self, matches: list, root: str, name: str) -> None:
         if not matches:
-            QMessageBox.information(self, "No tracks found", f'No .mp3 files matched "{name}".')
+            show_toast(self, f'No .mp3 files matched "{name}".', level="info")
             return
 
         relative_tracks = [os.path.relpath(path, start=root).replace('\\', '/') for path in matches]
         self.vm.create_playlist_from_tracks(root, name, relative_tracks)
 
     def _on_scan_failed(self, message: str) -> None:
-        QMessageBox.critical(self, "Error", f"Failed to scan the library:\n{message}")
+        show_toast(self, f"Failed to scan the library: {message}", level="error")
 
     def _on_scan_thread_done(self) -> None:
-        # Runs after finished_ok/failed either way, so the drive can't get
-        # stuck "busy" if a scan raises partway through.
         self._set_scanning_state(False)
         self._scan_thread = None
 
@@ -819,12 +853,8 @@ class PlaylistTab(QWidget):
         self._apply_playing_highlight()
 
     def _populate_track_items(self, tracks: list) -> None:
-        """Rebuilds the list, reading each file's ID3 title/artist for the
-        delegate to paint (see DropHighlightDelegate). The item's own
-        text() always stays the relative path — the source of truth used
-        elsewhere (saving, moving, locating in the player queue); title
-        and artist are stored only as extra data (TITLE_ROLE/ARTIST_ROLE)
-        for display."""
+        """Rebuilds the list; item.text() stays the relative path, title/
+        artist are stored separately (TITLE_ROLE/ARTIST_ROLE) for display."""
         self.playlist_list.clear()
 
         playlist_file = self.vm.current_playlist_file
@@ -838,9 +868,7 @@ class PlaylistTab(QWidget):
             self.playlist_list.addItem(item)
 
     def _read_track_metadata(self, playlist_dir: str, rel_path: str) -> tuple:
-        """Returns (title, artist). Falls back to the filename (without
-        extension) as the title if there's no tag; artist is empty if
-        there's no tag or no folder to resolve the absolute path."""
+        """Returns (title, artist), falling back to the filename."""
         fallback_title = os.path.splitext(os.path.basename(rel_path))[0]
         if not playlist_dir:
             return fallback_title, ""
@@ -863,15 +891,15 @@ class PlaylistTab(QWidget):
         self.vm.save_playlist(self.edit_name.text(), tracks)
 
     def on_delete_clicked(self) -> None:
-        confirm = QMessageBox.question(
+        confirmed = ConfirmDialog.confirm(
             self, "Confirm", "Are you sure you want to delete this playlist?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            confirm_text="Delete", cancel_text="Cancel", destructive=True
         )
-        if confirm == QMessageBox.StandardButton.Yes:
+        if confirmed:
             self.vm.delete_playlist()
 
     def on_save_success(self, new_path: str, tracks: list) -> None:
-        QMessageBox.information(self, "Success", "Playlist saved successfully!")
+        show_toast(self, "Playlist saved successfully!", level="success")
 
         main_win: "MainWindow" = self.window()
         if main_win and hasattr(main_win, 'handle_playlist_saved'):
@@ -887,14 +915,8 @@ class PlaylistTab(QWidget):
         return [self.playlist_list.item(i).text() for i in range(self.playlist_list.count())]
 
     def set_new_button_color(self, color_hex: str) -> None:
-        """Recolors the '+' icon and its Artist/Genre sub-option icons, plus
-        the playlist's "now playing" bar (called by MainWindow when the
-        secondary color changes in Settings). None of these are covered by
-        the shared QSS: the icons are hand-drawn (see _make_plus_icon and
-        friends), and the bar is painted by DropHighlightDelegate — it only
-        exists as a result of a double-click, so it uses the secondary
-        color distinctly from the primary-colored hover/selection
-        highlight."""
+        """Recolors the '+'/Artist/Genre icons and the "now playing" bar
+        to the secondary color (not covered by QSS)."""
         self.btn_new.setIcon(_make_plus_icon(color_hex))
         self.btn_by_artist.setIcon(_make_person_icon(color_hex))
         self.btn_by_genre.setIcon(_make_genre_icon(color_hex))
@@ -902,19 +924,13 @@ class PlaylistTab(QWidget):
         self.playlist_list.viewport().update()
 
     def set_primary_color(self, color_hex: str) -> None:
-        """Recolors the hover/selection highlight and the drag-and-drop
-        hint line (called by MainWindow when the primary color changes in
-        Settings). Both are painted by DropHighlightDelegate, so they
-        aren't covered by the shared QSS."""
+        """Recolors the hover/selection highlight and drag hint line."""
         self.playlist_list.drop_delegate.set_accent_color(color_hex)
         self.playlist_list.drop_delegate.set_hover_select_color(color_hex)
         self.playlist_list.viewport().update()
 
     def set_hover_background(self, color_hex: str) -> None:
-        """Matches the row hover/selected fill to the theme's neutral gray
-        (the same one used by the explorer), since it isn't covered by the
-        shared QSS — DropHighlightDelegate paints it by hand so it can stay
-        inset from the "now playing" bar."""
+        """Matches the row hover/selected fill to the theme's neutral gray."""
         self.playlist_list.drop_delegate.set_hover_bg_color(color_hex)
         self.playlist_list.viewport().update()
 
@@ -926,8 +942,7 @@ class PlaylistTab(QWidget):
     # ---------------- Now-playing highlight ----------------
 
     def highlight_current_track(self, current_abs_path: str) -> None:
-        """Called by MainWindow whenever the playing track changes, to mark
-        that item in the list (if it belongs to the currently open playlist)."""
+        """Marks the playing track in the list, if it's in this playlist."""
         self._current_playing_abs_path = current_abs_path
         self._apply_playing_highlight()
 

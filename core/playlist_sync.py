@@ -4,22 +4,12 @@ from typing import List
 
 class PlaylistSyncManager:
     """Keeps references inside .m3u files consistent when an .mp3 file is
-    renamed.
-
-    Without this, renaming a track in the Music tab leaves any playlist
-    referencing it with a dead path: the track silently disappears the
-    next time the .m3u is read (see PlaylistViewModel.load_playlist and
-    PlayerViewModel.load_m3u_playlist, which both skip missing paths).
-    """
+    renamed, so playlists don't end up with dead paths."""
 
     @staticmethod
     def update_references(root_dir: str, old_path: str, new_path: str) -> List[str]:
-        """Recursively scans root_dir for .m3u files referencing old_path
-        (as a relative path) and replaces it with a path relative to
-        new_path.
-
-        Returns the list of playlist paths that were actually updated.
-        """
+        """Scans root_dir for .m3u files referencing old_path and updates
+        them to new_path. Returns the list of playlists that were updated."""
         if not root_dir or not os.path.isdir(root_dir):
             return []
 

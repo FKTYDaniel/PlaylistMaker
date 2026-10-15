@@ -1,9 +1,9 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
                              QGraphicsBlurEffect, QSplitter, QTreeView, QAbstractItemView,
                              QLabel, QPushButton, QFileDialog, QSizePolicy, QApplication,
-                             QStyledItemDelegate, QStyle, QStyleOptionViewItem)
-from PyQt6.QtGui import QCloseEvent, QFileSystemModel, QKeyEvent, QPainter, QColor, QPen, QPalette
-from PyQt6.QtCore import Qt, QDir, QTimer, pyqtSignal, QRect
+                             QStyledItemDelegate, QStyle, QStyleOptionViewItem, QProxyStyle)
+from PyQt6.QtGui import QCloseEvent, QFileSystemModel, QKeyEvent, QPainter, QColor, QPen, QPalette, QPolygonF
+from PyQt6.QtCore import Qt, QDir, QTimer, pyqtSignal, QRect, QModelIndex, QPointF, QEvent
 from typing import List
 import os
 
@@ -24,14 +24,12 @@ from viewmodels.music_viewmodel import MusicViewModel
 
 
 class TreeRowHighlightDelegate(QStyledItemDelegate):
-    """Paints the explorer's own hover/selection (primary, left/right
-    borders — no native fill) plus a persistent secondary-colored marker
-    on whichever file is currently open (the .mp3 loaded in Music, or the
-    .m3u loaded in Playlist), regardless of the tree's actual selection
-    state — a single click elsewhere shouldn't make that marker disappear.
-    """
+    """Paints the explorer's hover/selection border, plus a persistent
+    marker on whichever file is currently open."""
 
     HIGHLIGHT_INSET = 4
+    HIGHLIGHT_RIGHT_INSET = 4
+    CONTENT_PADDING = 6
 
     def __init__(self, file_model: QFileSystemModel, parent=None) -> None:
         super().__init__(parent)
@@ -61,6 +59,9 @@ class TreeRowHighlightDelegate(QStyledItemDelegate):
         plain_option.state &= ~QStyle.StateFlag.State_Selected
         plain_option.state &= ~QStyle.StateFlag.State_MouseOver
         plain_option.state &= ~QStyle.StateFlag.State_HasFocus
+        plain_option.rect = option.rect.adjusted(
+            self.HIGHLIGHT_INSET + self.CONTENT_PADDING, 0, -self.CONTENT_PADDING, 0
+        )
 
         rect = option.rect
 
@@ -76,15 +77,17 @@ class TreeRowHighlightDelegate(QStyledItemDelegate):
         else:
             color = None
 
-        # The highlight fill/borders are painted first, and the item's own
-        # icon/text on top of it via super().paint() below — otherwise the
-        # fill would be drawn over the text and hide it.
+        # Painted first, then the icon/text on top via super().paint()
+        # below, so the fill doesn't cover the text.
         if color is not None:
             highlight_rect = QRect(
                 rect.left() + self.HIGHLIGHT_INSET, rect.top(),
-                rect.width() - self.HIGHLIGHT_INSET, rect.height()
+                rect.width() - self.HIGHLIGHT_INSET - self.HIGHLIGHT_RIGHT_INSET, rect.height()
             )
             painter.save()
+            # Clipped to this row's own rect so the 2px pen's stroke
+            # doesn't bleed 1px into the neighboring row.
+            painter.setClipRect(rect)
             painter.fillRect(highlight_rect, QColor(self.hover_bg_color))
             pen = QPen(QColor(color))
             pen.setWidth(2)
@@ -94,6 +97,47 @@ class TreeRowHighlightDelegate(QStyledItemDelegate):
             painter.restore()
 
         super().paint(painter, plain_option, index)
+
+
+class ArrowBranchStyle(QProxyStyle):
+    """Draws the explorer's expand/collapse arrows by hand, in the user's
+    primary color (QSS can't recolor the built-in arrow at runtime)."""
+
+    def __init__(self, base_style: QStyle) -> None:
+        super().__init__(base_style)
+        self._arrow_color = QColor("#00e5ff")
+
+    def set_arrow_color(self, color_hex: str) -> None:
+        self._arrow_color = QColor(color_hex)
+
+    def drawPrimitive(self, element, option, painter, widget=None) -> None:
+        if element != QStyle.PrimitiveElement.PE_IndicatorBranch:
+            super().drawPrimitive(element, option, painter, widget)
+            return
+
+        if not (option.state & QStyle.StateFlag.State_Children):
+            return  # Leaf item: no arrow, and no connecting guide lines.
+
+        rect = option.rect
+        size = min(rect.width(), rect.height()) * 0.16
+        cx, cy = rect.center().x(), rect.center().y()
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(self._arrow_color)
+
+        if option.state & QStyle.StateFlag.State_Open:
+            points = [QPointF(cx - size, cy - size * 0.55),
+                      QPointF(cx + size, cy - size * 0.55),
+                      QPointF(cx, cy + size * 0.55)]
+        else:
+            points = [QPointF(cx - size * 0.55, cy - size),
+                      QPointF(cx - size * 0.55, cy + size),
+                      QPointF(cx + size * 0.55, cy)]
+
+        painter.drawPolygon(QPolygonF(points))
+        painter.restore()
 
 
 class GlobalTreeView(QTreeView):
@@ -115,59 +159,61 @@ class GlobalTreeView(QTreeView):
         self.row_delegate = TreeRowHighlightDelegate(self.file_model, self)
         self.setItemDelegate(self.row_delegate)
 
-        # Without mouse tracking, Qt only updates the "hovered row" state
-        # on button press/release, not as the mouse simply moves — and
-        # without forcing a full repaint on every row change (the
-        # `entered` signal), fast mouse movement can leave a partial,
-        # dotted trail of un-cleared highlight fragments behind.
+        self._arrow_style = ArrowBranchStyle(self.style())
+        self.setStyle(self._arrow_style)
+
+        # Clicking anywhere on a folder's row expands/collapses it, not
+        # just the arrow itself.
+        self.clicked.connect(self._toggle_expand_on_click)
+
         self.setMouseTracking(True)
         self.entered.connect(lambda _index: self.viewport().update())
-
-        # `entered` only fires while the cursor is over a valid row, so
-        # changing the selection purely by clicking (no further mouse
-        # movement afterwards) can leave the *previous* row's hand-painted
-        # border/fill on screen — Qt's own partial repaint on selection
-        # change doesn't reliably clear the delegate's custom-drawn extras.
-        # Forcing a full repaint on every selection change closes that gap.
         self.selectionModel().selectionChanged.connect(lambda *_: self.viewport().update())
 
-        self._last_hover_row = -1
+        self._last_hover_index = QModelIndex()
+
+    def _toggle_expand_on_click(self, index) -> None:
+        if self.file_model.isDir(index):
+            self.setExpanded(index, not self.isExpanded(index))
+
+    def _update_hover_index(self, index) -> None:
+        """Compares the actual QModelIndex, not row(): the same row()
+        number can belong to different items in different folders."""
+        if index != self._last_hover_index:
+            self._last_hover_index = index
+            self.viewport().update()
+
+    def viewportEvent(self, event) -> bool:
+        """Reads MouseMove/Leave off the viewport directly, since the
+        view's own mouseMoveEvent/leaveEvent misses some exit paths."""
+        if event.type() == QEvent.Type.MouseMove:
+            self._update_hover_index(self.indexAt(event.position().toPoint()))
+        elif event.type() == QEvent.Type.Leave:
+            self._update_hover_index(QModelIndex())
+        return super().viewportEvent(event)
 
     def mouseMoveEvent(self, event) -> None:
         super().mouseMoveEvent(event)
-
-        # `entered` (used above) never fires when the cursor moves into
-        # empty space with no item under it — e.g. past the last row, in
-        # the leftover viewport space below a short tree. That transition
-        # still needs a repaint, or the last real row's hover highlight
-        # stays painted on screen with nothing left to clear it.
-        row = self.indexAt(event.position().toPoint()).row()
-        if row != self._last_hover_row:
-            self._last_hover_row = row
-            self.viewport().update()
+        self._update_hover_index(self.indexAt(event.position().toPoint()))
 
     def sync_palette(self, base_hex: str, text_hex: str) -> None:
-        """Matches QPalette::Highlight/HighlightedText to the tree's normal
-        (non-selected) colors. All selection/hover feedback is painted by
-        TreeRowHighlightDelegate, but that only covers column 0's own item
-        rect — the branch/expand-arrow strip to its left is still painted
-        natively by Qt for a selected row, using QPalette::Highlight. Left
-        at its default, that can end up as a stray, mismatched colored
-        sliver (e.g. picking up the OS accent color on Windows) next to the
-        delegate's own highlight. Matching it to the ordinary background
-        makes that strip effectively invisible in every state."""
+        """Matches QPalette::Highlight to the normal background, so the
+        native branch/arrow strip doesn't show a mismatched accent color."""
         palette = self.palette()
         palette.setColor(QPalette.ColorRole.Highlight, QColor(base_hex))
         palette.setColor(QPalette.ColorRole.HighlightedText, QColor(text_hex))
         self.setPalette(palette)
+
+    def set_arrow_color(self, color_hex: str) -> None:
+        self._arrow_style.set_arrow_color(color_hex)
+        self.viewport().update()
 
     def set_active_path(self, path: str) -> None:
         self.row_delegate.set_active_path(path)
         self.viewport().update()
 
     def leaveEvent(self, event) -> None:
-        self._last_hover_row = -1
-        self.viewport().update()
+        self._update_hover_index(QModelIndex())
         super().leaveEvent(event)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
@@ -187,13 +233,12 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
 
-        self.player_vm = PlayerViewModel()
+        # Created before PlayerViewModel so it can restore the saved volume.
+        self.config = ConfigManager()
+
+        self.player_vm = PlayerViewModel(self.config)
         self.playlist_vm = PlaylistViewModel()
         self.music_vm = MusicViewModel()
-
-        # User config (theme, colors) lives in %APPDATA%, never inside the
-        # install folder — see core/config_manager.py.
-        self.config = ConfigManager()
 
         # Tracks the last file opened in the Music tab, used to sync
         # playlists when that file gets renamed.
@@ -215,9 +260,6 @@ class MainWindow(QMainWindow):
 
         self.actions_toolbar = QWidget()
         self.actions_toolbar.setObjectName("actionsToolbar")
-        # "Fixed" vertical policy keeps this bar from growing to fill the
-        # extra space that a plain QVBoxLayout would otherwise distribute
-        # ambiguously between it and h_splitter.
         self.actions_toolbar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         toolbar_layout = QHBoxLayout(self.actions_toolbar)
         toolbar_layout.setContentsMargins(10, 10, 10, 10)
@@ -308,6 +350,7 @@ class MainWindow(QMainWindow):
 
         self.global_tree.enter_pressed.connect(self.tab_playlist.add_multiple_mp3s)
         self.tab_playlist.edit_metadata_requested.connect(self.edit_track_metadata)
+        self.tab_playlist.repeat_mode_changed.connect(self.player_vm.set_repeat_mode)
 
         self.blur_effect = QGraphicsBlurEffect()
         self.blur_effect.setBlurRadius(10)
@@ -324,10 +367,10 @@ class MainWindow(QMainWindow):
         self.settings_overlay.secondary_color_changed.connect(self._on_theme_or_color_changed)
         self.settings_overlay.closed.connect(self.hide_settings)
 
-        # The play button's glow and the '+' icon are painted directly in
-        # Python (not covered by the shared QSS), so they must be synced
-        # manually with the saved config on startup.
+        # The play button's glow and icons are painted directly (not
+        # covered by QSS), so sync them with the saved config manually.
         self.player_widget.set_glow_color(self.config.get_primary_color())
+        self.player_widget.set_icon_color(self.config.get_secondary_color())
         self.tab_playlist.set_new_button_color(self.config.get_secondary_color())
         self.tab_playlist.set_primary_color(self.config.get_primary_color())
         self.tab_playlist.set_hover_background(theme_manager.get_hover_background(self.config))
@@ -336,9 +379,6 @@ class MainWindow(QMainWindow):
 
         self.usb_thread = UsbDetectorThread()
         self.usb_thread.state_changed.connect(self.handle_usb_state)
-        # The USB search only starts when the user clicks "Search USB
-        # Drive" — see start_usb_search(). This keeps the overlay from
-        # appearing on its own at startup.
 
     def open_mini_player(self) -> None:
         """Hides the main window (not closed — the ViewModels and USB
@@ -367,6 +407,7 @@ class MainWindow(QMainWindow):
             theme_manager.apply_theme(app, self.config)
 
         self.player_widget.set_glow_color(self.config.get_primary_color())
+        self.player_widget.set_icon_color(self.config.get_secondary_color())
         self.tab_playlist.set_new_button_color(self.config.get_secondary_color())
         self.tab_playlist.set_primary_color(self.config.get_primary_color())
         self.tab_playlist.set_hover_background(theme_manager.get_hover_background(self.config))
@@ -380,6 +421,7 @@ class MainWindow(QMainWindow):
         self.global_tree.row_delegate.set_hover_select_color(self.config.get_primary_color())
         self.global_tree.row_delegate.set_active_color(self.config.get_secondary_color())
         self.global_tree.row_delegate.set_hover_bg_color(theme_manager.get_hover_background(self.config))
+        self.global_tree.set_arrow_color(self.config.get_primary_color())
         panel_bg, text_color, _, _ = theme_manager.get_neutral_dialog_colors(self.config)
         self.global_tree.sync_palette(panel_bg, text_color)
         self.global_tree.viewport().update()
@@ -392,19 +434,12 @@ class MainWindow(QMainWindow):
         self.overlay.set_searching_mode()
         self.overlay.show()
 
-        # Clears the thread's "last known drives" cache: it only emits
-        # state_changed when the detected list differs from the previous
-        # poll, which is the right behavior for the thread running quietly
-        # in the background, but means an already-detected drive (e.g. one
-        # already selected earlier) would never get reported again on a
-        # fresh manual search, since nothing actually changed from the
-        # thread's point of view. Resetting this forces the very next poll
-        # to report the current drives regardless.
+        # Reset so the next poll reports current drives even if nothing
+        # actually changed since the last background check.
         self.usb_thread.current_drives = None
 
-        # A QThread can't be restarted directly once finished; 'running' is
-        # what drives the loop in UsbDetectorThread.run(), so it's reset to
-        # True before (re)starting.
+        # A finished QThread can't be restarted directly; 'running' drives
+        # the loop in UsbDetectorThread.run().
         self.usb_thread.running = True
         if not self.usb_thread.isRunning():
             self.usb_thread.start()
@@ -415,9 +450,8 @@ class MainWindow(QMainWindow):
         self.overlay.hide()
 
     def open_folder_dialog(self) -> None:
-        """Lets the user pick any system folder without needing a USB
-        drive. USB auto-detection keeps running in parallel; this is just
-        an alternative, manual way to set the working folder."""
+        """Lets the user pick any system folder as an alternative to a
+        USB drive."""
         folder = QFileDialog.getExistingDirectory(self, "Choose Music Folder")
         if not folder:
             return
@@ -432,10 +466,8 @@ class MainWindow(QMainWindow):
         self.player_vm.load_single_mp3("")
 
     def handle_mp3_rename_success(self, new_path: str) -> None:
-        """Refreshes the explorer and reloads the renamed file into the
-        UI. Also fixes references in any .m3u under the root folder that
-        pointed to the old filename, so the track doesn't silently
-        disappear from existing playlists."""
+        """Refreshes the explorer, reloads the renamed file, and fixes
+        references to it in any .m3u under the root folder."""
         root = self.file_model.rootPath()
         if root and self._pending_old_path:
             PlaylistSyncManager.update_references(root, self._pending_old_path, new_path)
@@ -512,11 +544,7 @@ class MainWindow(QMainWindow):
 
         current_root = self.file_model.rootPath()
         if current_root and os.path.normpath(current_root).lower() == os.path.normpath(drive_path).lower():
-            # Already the active drive — the app already keeps Music/
-            # Playlist content in sync via the reloads that happen
-            # naturally while playlists are created/edited/deleted and
-            # metadata is edited, so there's nothing else to refresh here.
-            return
+            return  # already the active drive
 
         clean_letter = drive_path.strip("\\")
         self.setWindowTitle(f"Music Organizer - Drive: {clean_letter} [{drive_label}]")
@@ -538,11 +566,7 @@ class MainWindow(QMainWindow):
         self.usb_thread.stop()
         if self.mini_player is not None:
             # hide(), not close(): MiniPlayerWindow's own closeEvent
-            # ignores the close and restores the main window instead,
-            # which we don't want while the whole app is quitting.
+            # would otherwise just restore the main window.
             self.mini_player.hide()
         event.accept()
-        # Explicit quit: quitOnLastWindowClosed is disabled (see main.py),
-        # since the main window is only ever *hidden* while the mini
-        # player is active, which would otherwise never count as "closed".
         QApplication.instance().quit()

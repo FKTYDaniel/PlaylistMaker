@@ -46,16 +46,11 @@ class PlaylistViewModel(QObject):
             self.error_occurred.emit("A playlist with that name already exists on the drive.")
             return
 
-        # Sets the active path but does NOT create the file yet; the file
-        # is only written once save_playlist() is called.
         self.current_playlist_file = full_path
         self.playlist_loaded.emit(os.path.splitext(name)[0], [])
 
     def create_playlist_from_tracks(self, base_dir: str, name: str, relative_tracks: list[str]) -> None:
-        """Same as create_empty_playlist, but pre-filled with tracks already
-        found elsewhere (e.g. LibraryScanThread's "by artist"/"by genre"
-        results) — used so the "New playlist by Artist/Genre" buttons in
-        PlaylistTab can drop straight into the normal load/save flow."""
+        """Same as create_empty_playlist, but pre-filled with tracks."""
         name = name.strip()
         if not name:
             return
